@@ -257,3 +257,54 @@ ok  	github.com/yppp/ponytimer/internal/store
 ```
 
 - ticker 経路のテストは Step 2 で追加する（このステップでは既存テストのみ）。
+
+---
+
+## Major-1 修正 Step 2 — ticker 経路の統合テスト
+
+### 追加したもの
+
+- `internal/httpapi/server_test.go`
+  - `testServer` を `testServerWithTick(t, tickInterval)` に一般化し、既存の `testServer(t)` は
+     ticking 無効（interval 0）のラッパーにした。既存テストはそのまま通る。
+  - `testEnv` に `store *store.Store` を追加し、テストから永続化済みのイベントログを読めるようにした。
+- `internal/httpapi/ticker_test.go`（新規）
+  - `TestTickerTransitions`: `TickInterval = 5ms` の実サーバーを起動し、
+    構造 `level 60s / break 60s / level 60s` のトーナメントを HTTP API 経由で作成して `start` する。
+  - 時刻制御は `core.FakeClock`。時計を進めた後、**永続化済みイベントログ**（`store.ListEventsAfter`）を
+    deadline 5 秒でポーリングして待機する。固定 sleep による同期は使わない。
+  - assert:
+    1. Break 行へ入った時点: `level_changed` が 1 件、`finished` は 0 件。
+    2. Break から通常レベルへ戻った時点: `level_changed` が 2 件、依然 `finished` は 0 件。
+    3. 最終行を終えた時点: `finished` がちょうど 1 件。
+       さらに別の probe トーナメントを走らせて「ticker が今も動いている」ことを示し、
+       その後も `finished` の総数が 1 のままであることを確認する。
+  - イベント種別の列（`created` / `started` を除く ticker 由来分）が
+    `level_changed, level_changed, finished` の順であることも確認する。
+
+### テストが確実にバグを捕まえることの確認
+
+- Step 1 の修正前の `internal/httpapi/server.go`（`git show 7d60be7:internal/httpapi/server.go`）を
+  一時的に戻して新テストを実行すると、期待どおり失敗することを確認した:
+  ```
+  ticker_test.go:81: level_changed after entering the break row = 0, want 1 (events [created started finished])
+  --- FAIL: TestTickerTransitions (0.31s)
+  ```
+  つまり Break 行への進入が `finished` として記録される旧バグを新テストが検出する。
+
+### ローカル検証結果（Step 2）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+?   	github.com/yppp/ponytimer/internal/webui	[no test files]
+```
+
+- テスト件数: 37 件（auth 10 / core 16 / httpapi 4 / store 4 + webui・cmd はテストなし）。
+- flaky でないことの確認: `go test ./internal/httpapi/ -run TestTicker -race -count=10` が全 PASS。

@@ -22,11 +22,21 @@ type testEnv struct {
 	srv    *Server
 	clock  *core.FakeClock
 	cookie string
+	// store is the event log the server writes to; the ticker tests read it
+	// to observe the transitions.
+	store *store.Store
 }
 
 // testServer builds a server with an administrator account that is logged
-// in.
+// in. The background ticker is disabled.
 func testServer(t *testing.T) *testEnv {
+	t.Helper()
+	return testServerWithTick(t, 0)
+}
+
+// testServerWithTick builds a server like testServer, but with a background
+// ticker that runs every tickInterval.
+func testServerWithTick(t *testing.T, tickInterval time.Duration) *testEnv {
 	t.Helper()
 	st, err := store.Open(":memory:")
 	if err != nil {
@@ -42,12 +52,12 @@ func testServer(t *testing.T) *testEnv {
 
 	clock := core.NewFakeClock(time.Unix(1_800_000_000, 0))
 	s := New(st, clock, authSvc)
-	s.TickInterval = 0
+	s.TickInterval = tickInterval
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
-	return &testEnv{srv: s, clock: clock, cookie: cookie}
+	return &testEnv{srv: s, clock: clock, cookie: cookie, store: st}
 }
 
 // loginCookie opens a session for the administrator and returns its cookie.
