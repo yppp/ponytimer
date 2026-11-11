@@ -156,3 +156,32 @@ ok   github.com/yppp/ponytimer/internal/store
 - [ ] pause freezes display
 
 この実装は、最初の作業セッションが VM 交換で中断された後、writer の切り替えをまたいで継続した。
+
+## Acceptance smoke test (coordinator-run, 2026-11-11)
+
+Built the binary (`go build ./cmd/ponytimer`) and ran it against a fresh DB.
+Verified end to end with curl:
+
+- `GET /healthz` → ok. `POST /setup` creates the first account (303 → /admin);
+  `POST /login` issues a session cookie.
+- Unauthenticated `GET /api/tournaments` → 401.
+- Create with the WSOP ME 2022 Appendix A opening levels (100/200, 200/300,
+  200/400, 120 min each, starting stack 60,000) → id + display_token issued,
+  state `waiting`.
+- Counts command: fields take `{"value": n}` or `{"delta": n}` ops.
+  entries=9, rebuys=2, players_left 9→7 via delta −2 → total_chips 330,000,
+  average_stack 47,142.86 (matches hand calculation).
+- Start → snapshot (via display token, no auth) shows state `running` and
+  `level_ends_at_ms` set; remaining counts down from 7,200 s.
+- SSE stream on `/api/tournaments/{id}/events` delivered `started` (seq 2)
+  and `paused` (seq 3) events in the fixed envelope
+  {seq, type, tournament_id, structure_version, server_time, payload}.
+- Pause freeze: remaining_sec = 7197.926475399 immediately after pause and
+  byte-identical 3 s later — the remainder is fixed at server receipt time
+  (D6), not by display-side arrival.
+- Restart recovery: killed and relaunched the server on the same DB file;
+  snapshot still reports state `paused` with the identical remaining_sec.
+
+Result: PASS (all items). Display split view (slots=2/4) is implemented in
+the display page per Step C but was only code-verified here, not exercised
+in a browser.
