@@ -27,9 +27,12 @@
       <div class="row">
         <label for="starting_stack">Starting stack</label>
         <input id="starting_stack" name="starting_stack" type="number" min="0" step="1" value="1000">
+        <label for="rebuy_stack">Rebuy stack</label>
+        <input id="rebuy_stack" name="rebuy_stack" type="number" min="0" step="1" placeholder="same as starting stack">
         <label for="addon_chips">Addon chips</label>
         <input id="addon_chips" name="addon_chips" type="number" min="0" step="1" value="0">
       </div>
+      <p class="sub">Leave the rebuy stack empty to use the starting stack.</p>
       <div class="row">
         <label for="levels">Levels</label>
         <textarea id="levels" name="levels" rows="8" spellcheck="false">100,200,0,20

@@ -80,6 +80,7 @@
     var body = {
       name: document.getElementById("name").value.trim(),
       starting_stack: parseInt(document.getElementById("starting_stack").value, 10) || 0,
+      rebuy_stack: parseInt(document.getElementById("rebuy_stack").value, 10) || 0,
       addon_chips: parseInt(document.getElementById("addon_chips").value, 10) || 0,
       levels: levels
     };

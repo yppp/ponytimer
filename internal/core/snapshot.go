@@ -39,7 +39,10 @@ type Snapshot struct {
 	Addons        int `json:"addons"`
 	Reentries     int `json:"reentries"`
 	StartingStack int `json:"starting_stack"`
-	AddonChips    int `json:"addon_chips"`
+	// RebuyStack is the stack handed out for a rebuy (chips). Zero means the
+	// starting stack is used instead.
+	RebuyStack int `json:"rebuy_stack"`
+	AddonChips int `json:"addon_chips"`
 	// TotalChips is the estimated total chip count in play.
 	TotalChips int `json:"total_chips"`
 	// AverageStack is TotalChips divided by PlayersLeft (0 when nobody is left).
@@ -92,6 +95,7 @@ func (t *Tournament) SnapshotAt(now time.Time) Snapshot {
 		Addons:           t.Addons,
 		Reentries:        t.Reentries,
 		StartingStack:    t.StartingStack,
+		RebuyStack:       t.RebuyStack,
 		AddonChips:       t.AddonChips,
 		TotalChips:       t.TotalChips(),
 		AverageStack:     t.AverageStack(),

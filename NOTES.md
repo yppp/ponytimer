@@ -69,6 +69,7 @@ ok  	github.com/yppp/ponytimer/internal/core	0.004s
   spec §6.2 は「(エントリー＋リエントリー)×開始スタック ＋ リバイ×リバイスタック ＋ アドオン×アドオンスタック」で、
   リエントリーが総チップ量に含まれる点とリバイスタックが別項目である点が異なる。
   カウント-operation を実装するステップでどちらの定義に寄せるか決めること。
+  → 解決: ユーザー確認済み・仕様 §6.2 の式で確定（リエントリーは新規バイインとしてエントリーと同格に数える）。式自体は Step B 時点で §6.2 に一致済み。本ステップで式のテスト（リエントリーでアベレージが増えるケースを含む）、Snapshot への rebuy_stack 露出、管理画面のリバイスタック設定欄を追加して確定した。
 - `-data` の SQLite 接続、`/api/tournaments/...` の REST、SSE 配信、管理 Web と表示画面、
   ストラクチャー編集（§8）と自動生成（§9）はいずれも未実装。
 - 永続化（spec §12）: `Tournament` の状態は DB に保存・復元できる必要がある。
@@ -185,3 +186,33 @@ Verified end to end with curl:
 Result: PASS (all items). Display split view (slots=2/4) is implemented in
 the display page per Step C but was only code-verified here, not exercised
 in a browser.
+
+## 総チップ量の定義を確定（ユーザー確認）
+
+**決定**: 総チップ量は仕様 §6.2 の式で確定する。
+
+```
+Total chips = (entries + reentries) × starting stack
+            + rebuys × rebuy stack
+            + addons × addon stack
+```
+
+**理由**: リエントリーは新規のバイインであり、テーブルに新しいスタックを 1 つ追加する
+行為なので、エントリーと同格に数える。リエントリーを除外すると、平均スタックも
+R13 の終盤 BB 到達時の BB 推定も小さく見積もってしまう。リバイスタックは
+開始スタックとは別の設定項目として保持する（未設定のときは開始スタックを使う）。
+
+**このステップで追加したもの**:
+
+- `internal/core/snapshot_test.go`: §6.2 の式を固定するテスト。
+  - リエントリーが総チップ量とアベレージを増やすこと
+    （entries=9, reentries=1, players_left=10, starting_stack=30000 → 300000、平均 30000）。
+  - 同じフィールドで 1 人が busted して再エントリーした場合、総チップ量が
+    開始スタックちょうど 30000 だけ増えること。
+  - リバイスタック 10000（開始スタック 30000 とは別）で rebuys=2 が 20000 を寄与すること。
+  - アドオンスタックが両方のスタックと別で寄与すること。
+  - rebuy_stack が 0 のときは開始スタックにフォールバックすること。
+- `internal/core/snapshot.go`: `Snapshot` に `rebuy_stack` を追加（`addon_chips` の隣）。
+  追加のみの変更で、既存の JSON 契約は壊さない。
+- `internal/webui`: 作成フォームに「Rebuy stack」欄を追加し、作成リクエストの
+  `rebuy_stack` として送信する（空または 0 は「開始スタックと同じ」を意味する）。
