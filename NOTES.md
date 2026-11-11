@@ -216,3 +216,44 @@ R13 の終盤 BB 到達時の BB 推定も小さく見積もってしまう。�
   追加のみの変更で、既存の JSON 契約は壊さない。
 - `internal/webui`: 作成フォームに「Rebuy stack」欄を追加し、作成リクエストの
   `rebuy_stack` として送信する（空または 0 は「開始スタックと同じ」を意味する）。
+
+---
+
+## Major-1 修正 Step 1 — `tickAll` の遷移判定を RawState ベースに直す
+
+### 根本原因
+
+- `internal/httpapi/server.go` の `tickAll` が Tick 前後の**派生状態** `State()` を比較し、
+  「状態が変わった＝トーナメント終了」とみなして `finished` イベントを発行・永続化していた。
+- `State()` は Break 行の上にいる間 `Break` を返す派生値なので、
+  通常レベル→Break 行で `running → break`、Break 行→通常レベルで `break → running` と
+  状態変化が起き、**Break に入る瞬間と戻る瞬間の両方で誤った `finished` が保存された**。
+- コア側の `RawState()`（`internal/core/tournament.go`）は Break 派生値を持たない内部状態を
+  返し、「遷移を監視する呼び出し側は RawState を比較すること」とコメントがある。
+  `tickAll` がそれを使っていなかったのが欠陥の直接原因。
+
+### 修正内容
+
+- `internal/httpapi/server.go` の `tickAll`:
+  - before/after の比較を `rt.t.State()` から `rt.t.RawState()` に変更。
+  - `finished` は「RawState が `Running` → `Finished` へ遷移したとき」だけ発行。
+    遷移後は `IsRunning()` が false になり `tickAll` の対象から外れるため、構造上ちょうど1回だけ出る。
+  - 最終行到達でないレベル変化（Break 行への出入りを含む）は従来どおり `level_changed` を発行。
+  - 保存の順序と形は現行を維持: `SaveTournament` してから `emitLocked`、エラーは `log.Printf` で記録。
+- `internal/core` は変更していない（`RawState()` は既存の公開 API のため追加対応不要）。
+
+### ローカル検証結果（Step 1）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+?   	github.com/yppp/ponytimer/internal/webui	[no test files]
+```
+
+- ticker 経路のテストは Step 2 で追加する（このステップでは既存テストのみ）。

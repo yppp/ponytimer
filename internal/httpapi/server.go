@@ -190,14 +190,19 @@ func (s *Server) tickAll(now time.Time) {
 			continue
 		}
 		beforeLevel := rt.t.CurrentLevel
-		beforeState := rt.t.State()
+		// RawState, not State: State() derives Break from the current row,
+		// so a level change (in or out of a break row) would look like the
+		// end of the tournament.
+		beforeState := rt.t.RawState()
 		rt.t.Tick(now)
 		afterLevel := rt.t.CurrentLevel
-		afterState := rt.t.State()
+		afterState := rt.t.RawState()
 
 		switch {
-		case afterState != beforeState:
-			// The tournament reached the end of the structure.
+		case beforeState == core.Running && afterState == core.Finished:
+			// The tournament reached the end of the structure. After the
+			// transition IsRunning() is false, so the next tick skips it
+			// and the event is emitted exactly once.
 			if err := s.store.SaveTournament(rt.t, rt.token); err != nil {
 				log.Printf("ponytimer: save tournament %s: %v", rt.t.ID, err)
 			}
