@@ -40,7 +40,10 @@ type Tournament struct {
 	Addons        int
 	Reentries     int
 	StartingStack int
-	AddonChips    int
+	// RebuyStack is the stack handed out for a rebuy. When it is zero the
+	// starting stack is used instead.
+	RebuyStack int
+	AddonChips int
 
 	clock Clock
 	state State
@@ -74,6 +77,18 @@ func (t *Tournament) State() State {
 	}
 	return t.state
 }
+
+// RawState returns the internal state without the Break derivation.
+//
+// A tournament sitting on a break row is internally Running, so comparing
+// State() before and after a transition would mistake a break for the end of
+// the tournament. Callers that watch for transitions compare RawState.
+func (t *Tournament) RawState() State { return t.state }
+
+// IsRunning reports whether the timer is ticking. Unlike State it does not
+// derive the Break state from the current row, so it is true while a break
+// row is in progress.
+func (t *Tournament) IsRunning() bool { return t.state == Running }
 
 // CurrentLevelRow returns the level in progress (zero value if out of range).
 func (t *Tournament) CurrentLevelRow() Level { return t.currentLevel() }

@@ -47,9 +47,17 @@ type Snapshot struct {
 }
 
 // TotalChips returns the estimated total number of chips in play.
+//
+// Spec §6.2: (entries + reentries) x starting stack
+// + rebuys x rebuy stack + addons x addon stack.
+// When no rebuy stack is configured the starting stack is used.
 func (t *Tournament) TotalChips() int {
-	return t.Entries*t.StartingStack +
-		t.Rebuys*t.StartingStack +
+	rebuyStack := t.RebuyStack
+	if rebuyStack == 0 {
+		rebuyStack = t.StartingStack
+	}
+	return (t.Entries+t.Reentries)*t.StartingStack +
+		t.Rebuys*rebuyStack +
 		t.Addons*t.AddonChips
 }
 

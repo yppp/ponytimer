@@ -73,3 +73,34 @@ ok  	github.com/yppp/ponytimer/internal/core	0.004s
   ストラクチャー編集（§8）と自動生成（§9）はいずれも未実装。
 - 永続化（spec §12）: `Tournament` の状態は DB に保存・復元できる必要がある。
   保存形式を決める際、`State()` が派生値である点（Break は行の Type から決まる）に注意。
+
+---
+
+## Step B — SQLite、REST コマンド、Snapshot、SSE
+
+### ビルドしたもの
+
+- `internal/store/store.go`: SQLite スキーマ、トーナメントの保存・復元・一覧、display token 解決、イベントログと seq による replay。
+- `internal/core/persist.go` とコア型の更新: タイマー状態、レベル構造、カウントを永続化し、指定クロックで復元。
+- `internal/httpapi`: トーナメント作成・一覧・snapshot、start / pause / resume / adjust / next_level / prev_level / reset / counts コマンド、公開 display snapshot、SSE。
+  - SSE は `id: <seq>` とイベント envelope を送り、`Last-Event-ID` より後の保存済みイベントを先に replay。15 秒間隔の heartbeat comment を送信。
+  - 250ms ticker が running のトーナメントを進め、レベル変更と終了を保存・通知。
+  - `New` は `core.Clock` を受け取るため、HTTP テストでも FakeClock を注入可能。
+- `cmd/ponytimer/main.go`: SQLite を開き、永続状態を復元して HTTP API を起動。
+- 追加・更新ファイル: `go.mod`, `go.sum`, `internal/core/{persist.go,snapshot.go,tournament.go}`, `internal/store/store.go`, `internal/httpapi/{commands.go,handlers.go,server.go,sse.go,server_test.go}`, `cmd/ponytimer/main.go`。
+- 作業は VM 交換による中断をまたいで継続し、途中で writer も切り替わった。既存実装を確認した上で不足していた HTTP API テストを追加。
+
+### テストとローカル検証
+
+- `internal/httpapi/server_test.go`: FakeClock で pause の残り時間が受信時刻に凍結されること、SSE envelope のフィールドと型、`Last-Event-ID` による未受信イベント replay を検証。
+- ローカル結果（Go 1.27.4）:
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?    github.com/yppp/ponytimer/cmd/ponytimer       [no test files]
+ok   github.com/yppp/ponytimer/internal/core
+ok   github.com/yppp/ponytimer/internal/httpapi
+ok   github.com/yppp/ponytimer/internal/store
+```
