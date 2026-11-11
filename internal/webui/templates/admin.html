@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PonyTimer — Tournaments</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+<main class="wide">
+  <header class="topbar">
+    <h1>PonyTimer</h1>
+    <nav>
+      <a href="/admin/accounts">Accounts</a>
+      <a href="/display">Display</a>
+      <form method="post" action="/logout" class="inline"><button type="submit" class="link">Sign out</button></form>
+    </nav>
+  </header>
+
+  <section class="panel">
+    <h2>New tournament</h2>
+    <form id="create-form">
+      <div class="row">
+        <label for="name">Name</label>
+        <input id="name" name="name" type="text" required>
+      </div>
+      <div class="row">
+        <label for="starting_stack">Starting stack</label>
+        <input id="starting_stack" name="starting_stack" type="number" min="0" step="1" value="1000">
+        <label for="addon_chips">Addon chips</label>
+        <input id="addon_chips" name="addon_chips" type="number" min="0" step="1" value="0">
+      </div>
+      <div class="row">
+        <label for="levels">Levels</label>
+        <textarea id="levels" name="levels" rows="8" spellcheck="false">100,200,0,20
+200,400,0,20
+break,10
+400,800,0,20</textarea>
+      </div>
+      <p class="sub">One level per line: <code>sb,bb,ante,minutes</code> or <code>break,minutes</code>.</p>
+      <button type="submit">Create tournament</button>
+      <p id="create-error" class="error" hidden></p>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Tournaments</h2>
+    <div id="tournaments" class="tournaments">Loading…</div>
+  </section>
+</main>
+<script src="/static/admin.js"></script>
+</body>
+</html>

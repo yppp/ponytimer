@@ -104,3 +104,55 @@ ok   github.com/yppp/ponytimer/internal/core
 ok   github.com/yppp/ponytimer/internal/httpapi
 ok   github.com/yppp/ponytimer/internal/store
 ```
+
+---
+
+## Step C — アカウント認証と組み込み Web UI
+
+### ビルドしたもの
+
+- `internal/auth`: Argon2id による PHC 形式パスワードハッシュ（ランダム salt、定数時間比較）、初回 `/setup`、`/login` / `/logout`、セッション管理と認証 middleware。
+  - Cookie は HttpOnly、SameSite=Lax、Path=/。TLS 接続では Secure。
+  - 初回以降の公開登録はなく、追加アカウントはログイン済みの `/admin/accounts` から作成する。
+  - `/api/tournaments*` は未認証時に JSON 401、`/admin` とアカウント管理ページは `/login` へリダイレクトする。
+- `internal/store/accounts.go`: アカウントと期限付きセッションの保存・取得・削除。
+- `internal/webui`: テンプレートと CSS / JavaScript をバイナリに埋め込み。管理画面の大会作成・カウンター・操作パネル、複数 token と 1/2/4 slot に対応する公開 display 画面。
+  - display は `level_ends_at_ms` からブラウザー内で時計を進め、30 秒ごとに snapshot を再取得する。token 付き SSE で更新し、Waiting / Finished 表示と Break overlay を備える。
+- `internal/httpapi`: 大会管理 API に認証 middleware を適用し、公開 display SSE を追加。
+- `cmd/ponytimer/main.go`: 認証、Web UI、API の route を組み立てる。
+- 追加・更新ファイル: `cmd/ponytimer/main.go`, `go.mod`, `go.sum`, `internal/auth/`, `internal/store/accounts.go`, `internal/webui/`, `internal/httpapi/{server.go,sse.go,server_test.go,auth_test.go}`。
+
+### テストとローカル検証
+
+- `internal/auth`: hash round-trip、異なる salt、誤パスワード・不正 hash の拒否、setup の一度限り、login/logout、Cookie 属性、アカウントページの認証を確認。
+- `internal/httpapi/auth_test.go`: 未認証 API の JSON 401、認証済み API、公開 display snapshot を確認。
+- ローカル結果（Go 1.27.4）:
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?    github.com/yppp/ponytimer/cmd/ponytimer       [no test files]
+ok   github.com/yppp/ponytimer/internal/auth
+ok   github.com/yppp/ponytimer/internal/core
+ok   github.com/yppp/ponytimer/internal/httpapi
+ok   github.com/yppp/ponytimer/internal/store
+?    github.com/yppp/ponytimer/internal/webui       [no test files]
+```
+
+### 残課題 / スコープ上の確認事項
+
+- `/setup` はアカウント数を確認してから最初のアカウントを作成するため、同時に複数の初回 setup が届いた場合の排他は DB トランザクションで保証していない。通常の逐次利用では 2 件目以降を拒否する。初回セットアップ競合の完全な防止は必要性を確認して別途扱う。
+- ブラウザーを使った受け入れ smoke test は未実施。以下を coordinator が実行する。
+
+#### Acceptance smoke test（coordinator が実行）
+
+- [ ] setup account
+- [ ] login
+- [ ] create tournament
+- [ ] open display
+- [ ] start
+- [ ] SSE updates
+- [ ] pause freezes display
+
+この実装は、最初の作業セッションが VM 交換で中断された後、writer の切り替えをまたいで継続した。

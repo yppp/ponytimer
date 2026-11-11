@@ -1,19 +1,21 @@
 // Command ponytimer serves the PonyTimer tournament clock.
 //
-// Step B: the binary serves the REST API and the SSE event stream on top of
-// a SQLite database. The management web pages arrive in a later step.
+// The binary serves the REST API, the SSE event stream and the embedded web
+// interface (management pages and display pages) on top of a SQLite
+// database.
 package main
 
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 
+	"github.com/yppp/ponytimer/internal/auth"
 	"github.com/yppp/ponytimer/internal/core"
 	"github.com/yppp/ponytimer/internal/httpapi"
 	"github.com/yppp/ponytimer/internal/store"
+	"github.com/yppp/ponytimer/internal/webui"
 )
 
 func main() {
@@ -27,25 +29,33 @@ func main() {
 	}
 	defer st.Close()
 
-	srv := httpapi.New(st, core.RealClock{})
+	authSvc := auth.NewService(st)
+
+	srv := httpapi.New(st, core.RealClock{}, authSvc)
 	if err := srv.Start(); err != nil {
 		log.Fatalf("ponytimer: cannot start server: %v", err)
 	}
 	defer srv.Close()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintln(w, "PonyTimer — development placeholder")
-	})
+
+	// The web interface. The management pages need a session, the display
+	// page is public: the display token is its credential.
+	mux.HandleFunc("GET /setup", authSvc.SetupGet)
+	mux.HandleFunc("POST /setup", authSvc.SetupPost)
+	mux.HandleFunc("GET /login", authSvc.LoginGet)
+	mux.HandleFunc("POST /login", authSvc.LoginPost)
+	mux.HandleFunc("POST /logout", authSvc.LogoutPost)
+	mux.Handle("GET /admin", authSvc.RequireAuth(http.HandlerFunc(webui.RenderAdmin)))
+	mux.Handle("GET /admin/accounts", authSvc.RequireAuth(http.HandlerFunc(authSvc.AccountsGet)))
+	mux.Handle("POST /admin/accounts", authSvc.RequireAuth(http.HandlerFunc(authSvc.AccountsPost)))
+	mux.HandleFunc("GET /display", webui.RenderDisplay)
+	mux.Handle("GET /static/", http.StripPrefix("/static/", webui.StaticHandler()))
+
 	// The API routes are more specific than "/", so they take precedence.
 	mux.Handle("/api/", srv.Handler())
 	mux.Handle("/api", srv.Handler())

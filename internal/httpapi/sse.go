@@ -67,6 +67,30 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "tournament not found")
 		return
 	}
+	s.streamEvents(w, r, id)
+}
+
+// handleDisplayEvents serves the SSE stream of a tournament for the display
+// page.
+//
+// The display token is the credential of this route, so it needs no
+// session: the stream is the same one the admin page sees.
+func (s *Server) handleDisplayEvents(w http.ResponseWriter, r *http.Request) {
+	token := r.PathValue("token")
+	id, err := s.store.TournamentIDByDisplayToken(token)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "display token not found")
+		return
+	}
+	if _, ok := s.runtimeFor(id); !ok {
+		writeError(w, http.StatusNotFound, "tournament not found")
+		return
+	}
+	s.streamEvents(w, r, id)
+}
+
+// streamEvents writes the SSE stream of a tournament.
+func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request, id string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming is not supported")

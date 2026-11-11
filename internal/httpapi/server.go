@@ -33,10 +33,21 @@ type runtime struct {
 	token string
 }
 
+// Authenticator guards the admin routes.
+//
+// It is implemented by internal/auth: the requirement is only a session
+// check, so the API does not depend on the authentication package.
+type Authenticator interface {
+	// RequireAuth wraps a handler with the session check.
+	RequireAuth(next http.Handler) http.Handler
+}
+
 // Server serves the REST API and the SSE event stream.
 type Server struct {
 	store *store.Store
 	clock core.Clock
+	// auth guards the admin routes. It is never nil.
+	auth Authenticator
 
 	// TickInterval is how often the background ticker advances the running
 	// tournaments. Set it to 0 to disable the ticker (tests).
@@ -55,13 +66,20 @@ type Server struct {
 
 // New creates a server. Call Start to load the persisted tournaments and to
 // run the background ticker.
-func New(st *store.Store, clock core.Clock) *Server {
+//
+// The authenticator guards the admin API routes; the display routes stay
+// public, because the display token is their credential.
+func New(st *store.Store, clock core.Clock, auth Authenticator) *Server {
 	if clock == nil {
 		clock = core.RealClock{}
+	}
+	if auth == nil {
+		panic("httpapi: an authenticator is required")
 	}
 	return &Server{
 		store:             st,
 		clock:             clock,
+		auth:              auth,
 		TickInterval:      DefaultTickInterval,
 		HeartbeatInterval: DefaultHeartbeatInterval,
 		runtimes:          map[string]*runtime{},
@@ -72,17 +90,18 @@ func New(st *store.Store, clock core.Clock) *Server {
 
 // Handler returns the HTTP handler of the API.
 //
-// TODO(step C): the /api routes are the admin routes and must be wrapped by
-// the session authentication middleware (accounts/sessions in the store).
-// The display routes below stay public.
+// The admin routes are wrapped by the session authentication: an
+// unauthenticated call gets a 401 JSON answer. The display routes stay
+// public, because the display token is their credential.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/tournaments", s.handleCreateTournament)
-	mux.HandleFunc("GET /api/tournaments", s.handleListTournaments)
-	mux.HandleFunc("GET /api/tournaments/{id}/snapshot", s.handleSnapshot)
-	mux.HandleFunc("POST /api/tournaments/{id}/commands", s.handleCommands)
-	mux.HandleFunc("GET /api/tournaments/{id}/events", s.handleEvents)
+	mux.Handle("POST /api/tournaments", s.auth.RequireAuth(http.HandlerFunc(s.handleCreateTournament)))
+	mux.Handle("GET /api/tournaments", s.auth.RequireAuth(http.HandlerFunc(s.handleListTournaments)))
+	mux.Handle("GET /api/tournaments/{id}/snapshot", s.auth.RequireAuth(http.HandlerFunc(s.handleSnapshot)))
+	mux.Handle("POST /api/tournaments/{id}/commands", s.auth.RequireAuth(http.HandlerFunc(s.handleCommands)))
+	mux.Handle("GET /api/tournaments/{id}/events", s.auth.RequireAuth(http.HandlerFunc(s.handleEvents)))
 	mux.HandleFunc("GET /api/display/{token}/snapshot", s.handleDisplaySnapshot)
+	mux.HandleFunc("GET /api/display/{token}/events", s.handleDisplayEvents)
 	return mux
 }
 

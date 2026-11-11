@@ -11,41 +11,79 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yppp/ponytimer/internal/auth"
 	"github.com/yppp/ponytimer/internal/core"
 	"github.com/yppp/ponytimer/internal/store"
 )
 
-func testServer(t *testing.T) (*Server, *core.FakeClock) {
+// testEnv is one test installation: the API server, its clock and the
+// session cookie of a logged in administrator.
+type testEnv struct {
+	srv    *Server
+	clock  *core.FakeClock
+	cookie string
+}
+
+// testServer builds a server with an administrator account that is logged
+// in.
+func testServer(t *testing.T) *testEnv {
 	t.Helper()
 	st, err := store.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+
+	authSvc := auth.NewService(st)
+	if _, err := authSvc.CreateAccount("admin", "supersecret"); err != nil {
+		t.Fatal(err)
+	}
+	cookie := loginCookie(t, authSvc)
+
 	clock := core.NewFakeClock(time.Unix(1_800_000_000, 0))
-	s := New(st, clock)
+	s := New(st, clock, authSvc)
 	s.TickInterval = 0
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
-	return s, clock
+	return &testEnv{srv: s, clock: clock, cookie: cookie}
 }
 
-func request(t *testing.T, s *Server, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+// loginCookie opens a session for the administrator and returns its cookie.
+func loginCookie(t *testing.T, authSvc *auth.Service) string {
+	t.Helper()
+	acc, err := authSvc.Authenticate("admin", "supersecret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := authSvc.CreateSession(acc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return auth.SessionCookieName + "=" + token
+}
+
+// request sends a request with the session cookie of the administrator.
+func (e *testEnv) request(t *testing.T, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	if e.cookie != "" {
+		req.Header.Set("Cookie", e.cookie)
+	}
 	w := httptest.NewRecorder()
-	s.Handler().ServeHTTP(w, req)
+	e.srv.Handler().ServeHTTP(w, req)
 	return w
 }
 
-func createTestTournament(t *testing.T, s *Server) (string, string) {
+// createTestTournament creates a tournament and returns its id and its
+// display token.
+func (e *testEnv) createTestTournament(t *testing.T) (string, string) {
 	t.Helper()
-	w := request(t, s, http.MethodPost, "/api/tournaments", `{"name":"Test","starting_stack":1000,"levels":[{"type":"level","duration_sec":60},{"type":"level","duration_sec":60}]}`, nil)
+	w := e.request(t, http.MethodPost, "/api/tournaments", `{"name":"Test","starting_stack":1000,"levels":[{"type":"level","duration_sec":60},{"type":"level","duration_sec":60}]}`, nil)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create status %d: %s", w.Code, w.Body)
 	}
@@ -56,9 +94,10 @@ func createTestTournament(t *testing.T, s *Server) (string, string) {
 	return result.ID, result.DisplayToken
 }
 
-func postCommand(t *testing.T, s *Server, id, body string) commandResponse {
+// postCommand sends a command to a tournament.
+func (e *testEnv) postCommand(t *testing.T, id, body string) commandResponse {
 	t.Helper()
-	w := request(t, s, http.MethodPost, "/api/tournaments/"+id+"/commands", body, nil)
+	w := e.request(t, http.MethodPost, "/api/tournaments/"+id+"/commands", body, nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("command status %d: %s", w.Code, w.Body)
 	}
@@ -70,16 +109,16 @@ func postCommand(t *testing.T, s *Server, id, body string) commandResponse {
 }
 
 func TestPauseFreezesAtReceiptTime(t *testing.T) {
-	s, clock := testServer(t)
-	id, _ := createTestTournament(t, s)
-	postCommand(t, s, id, `{"type":"start"}`)
-	clock.Advance(17 * time.Second)
-	paused := postCommand(t, s, id, `{"type":"pause"}`)
+	e := testServer(t)
+	id, _ := e.createTestTournament(t)
+	e.postCommand(t, id, `{"type":"start"}`)
+	e.clock.Advance(17 * time.Second)
+	paused := e.postCommand(t, id, `{"type":"pause"}`)
 	if got, want := paused.Snapshot.RemainingSec, float64(43); got != want {
 		t.Fatalf("remaining seconds after pause = %v, want %v", got, want)
 	}
-	clock.Advance(90 * time.Second)
-	w := request(t, s, http.MethodGet, "/api/tournaments/"+id+"/snapshot", "", nil)
+	e.clock.Advance(90 * time.Second)
+	w := e.request(t, http.MethodGet, "/api/tournaments/"+id+"/snapshot", "", nil)
 	var snap core.Snapshot
 	if err := json.Unmarshal(w.Body.Bytes(), &snap); err != nil {
 		t.Fatal(err)
@@ -144,24 +183,30 @@ func readSSE(t *testing.T, chunks <-chan string) sseEvent {
 	return sseEvent{id: id, data: envelope}
 }
 
-func startStream(s *Server, id string, lastID int64) (context.CancelFunc, *streamWriter) {
+// startStream opens the SSE stream of a tournament as the administrator.
+func (e *testEnv) startStream(t *testing.T, id string, lastID int64) (context.CancelFunc, *streamWriter) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, "/api/tournaments/"+id+"/events", nil).WithContext(ctx)
 	if lastID > 0 {
 		req.Header.Set("Last-Event-ID", strconv.FormatInt(lastID, 10))
 	}
+	if e.cookie != "" {
+		req.Header.Set("Cookie", e.cookie)
+	}
 	w := &streamWriter{header: make(http.Header), chunks: make(chan string, 8)}
-	go s.Handler().ServeHTTP(w, req)
+	go e.srv.Handler().ServeHTTP(w, req)
 	return cancel, w
 }
 
-func waitForSubscriber(t *testing.T, s *Server, id string) {
+// waitForSubscriber waits until the client is registered for the events.
+func (e *testEnv) waitForSubscriber(t *testing.T, id string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		s.mu.Lock()
-		n := len(s.subs[id])
-		s.mu.Unlock()
+		e.srv.mu.Lock()
+		n := len(e.srv.subs[id])
+		e.srv.mu.Unlock()
 		if n > 0 {
 			return
 		}
@@ -171,11 +216,11 @@ func waitForSubscriber(t *testing.T, s *Server, id string) {
 }
 
 func TestSSEEnvelopeAndReplay(t *testing.T) {
-	s, _ := testServer(t)
-	id, _ := createTestTournament(t, s)
-	cancel, stream := startStream(s, id, 0)
-	waitForSubscriber(t, s, id)
-	started := postCommand(t, s, id, `{"type":"start"}`)
+	e := testServer(t)
+	id, _ := e.createTestTournament(t)
+	cancel, stream := e.startStream(t, id, 0)
+	e.waitForSubscriber(t, id)
+	started := e.postCommand(t, id, `{"type":"start"}`)
 	event := readSSE(t, stream.chunks)
 	if event.id != started.Seq {
 		t.Fatalf("event id = %d, want %d", event.id, started.Seq)
@@ -198,11 +243,11 @@ func TestSSEEnvelopeAndReplay(t *testing.T) {
 	}
 	cancel()
 
-	paused := postCommand(t, s, id, `{"type":"pause"}`)
+	paused := e.postCommand(t, id, `{"type":"pause"}`)
 	if paused.Seq <= event.id {
 		t.Fatalf("pause seq %d did not advance past %d", paused.Seq, event.id)
 	}
-	replayCancel, replay := startStream(s, id, event.id)
+	replayCancel, replay := e.startStream(t, id, event.id)
 	defer replayCancel()
 	replayed := readSSE(t, replay.chunks)
 	if replayed.id != paused.Seq || replayed.data["type"] != "paused" || replayed.data["tournament_id"] != id {
