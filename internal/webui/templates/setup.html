@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PonyTimer — Setup</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+<main class="card">
+  <h1>PonyTimer</h1>
+  <p class="sub">Create the first administrator account.</p>
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+  <form method="post" action="/setup">
+    <label for="username">User name</label>
+    <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="new-password" required>
+    <label for="password_confirm">Password (again)</label>
+    <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password" required>
+    <button type="submit">Create account</button>
+  </form>
+</main>
+</body>
+</html>

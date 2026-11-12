@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PonyTimer — Accounts</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+<main class="wide">
+  <h1>Accounts</h1>
+  <p class="sub"><a href="/admin">← Back to tournaments</a></p>
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+  <section class="panel">
+    <h2>Add an account</h2>
+    <p class="sub">There is no public sign-up: every account is created here by an administrator.</p>
+    <form method="post" action="/admin/accounts">
+      <label for="username">User name</label>
+      <input id="username" name="username" type="text" autocomplete="off" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" required>
+      <button type="submit">Create account</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Existing accounts</h2>
+    {{if .Accounts}}
+    <table class="list">
+      <thead><tr><th>User name</th><th>Created</th></tr></thead>
+      <tbody>
+      {{range .Accounts}}
+        <tr><td>{{.Username}}</td><td>{{.Created}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="sub">No accounts.</p>
+    {{end}}
+  </section>
+</main>
+</body>
+</html>
