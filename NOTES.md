@@ -652,3 +652,39 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
 - ローテーション (levels_per_game での自動 game 切替) の本式実装。
 - 表計算エディタ本体 (#6)。
 - stud_enabled=false のときに stud 行を弾くバリデーション (エディタ側の領分)。
+
+### 実装メモ (Step A: core モデル + 移行 + テスト)
+
+- 変更ファイル:
+  - `internal/core/level.go`: `Bets` 構造体 (sb / bb / big_bet / ante / bring_in / complete、
+    すべて int + omitempty)、format 定数 3 種、`Level` を
+    `{index, type, game, format, bets, duration_sec}` へ変更。
+    `Level.EffectiveFormat()` (空 → blind-nl) と `core.ValidFormat()` を追加。
+    `Level.UnmarshalJSON` を実装: 旧形式 (フラット sb/bb/ante) を bets へ畳み込み、
+    `type=level` で format が空なら blind-nl を補う。bets がある行は bets 優先。
+    書き出しは新形式のみ (カスタム Marshal は無し)。
+  - `internal/core/gamemix.go` (新規): `GameMix` 構造体
+    (games / stud_enabled / stud_show_big_bet / levels_per_game) と
+    `EffectiveLevelsPerGame()` (0 以下 → 1)。
+  - `internal/core/tournament.go`: `Tournament.GameMix` を追加。
+  - `internal/core/persist.go`: `PersistedState.GameMix` を追加。旧 JSON に
+    game_mix が無い場合はゼロ値として読める (スタッド無効 / 実効 1 レベル)。
+  - `internal/core/snapshot.go`: `LevelView` を `{index, type, game, format, bets,
+    duration_sec}` へ変更 (フラット sb/bb/ante は廃止)。level 行の format は
+    実効値、break 行は format 空。`Snapshot.GameMix` を追加。
+  - `internal/core/level_test.go` (新規): 移行テスト 1〜3 (旧永続 JSON の復元、
+    移行後の新形式書き出し、新形式の stud 行の往復) ＋ bets 優先・実効 format・
+    ValidFormat・snapshot の game_mix / format 確認。
+  - `internal/core/tournament_test.go`, `internal/store/store_test.go`:
+    旧フラット字段の前提を新モデルへ更新 (検証内容は変えない)。
+- 決めたこと:
+  - `LevelView.Format` は level 行では必ず実効値 (空にしない)、break 行は空
+    (break には強制ベットも形式もない)。
+  - `Level.Format` はメモリ上でも空のままでよい (実効値は EffectiveFormat で
+    取る)。JSON 往復後だけ migration が blind-nl を埋めるため、store の往復
+    テストは構造に format を明示した。
+  - `Bets` の json タグは `bets` (omitempty なし)。break 行は `{"bets":{}}`。
+  - `GameMix` の `games` のみ omitempty。他は常に JSON に出る。
+- テスト結果: `gofmt -l .` は出力なし、`go vet ./...` は問題なし、
+  `go test ./...` は全パッケージ PASS。既定の Go build cache が読み取り専用の
+  ため `GOCACHE=/tmp/pt-go-cache` を指定して実行した。

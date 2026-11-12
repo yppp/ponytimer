@@ -24,6 +24,8 @@ type Tournament struct {
 	Name string
 	// Structure is the ordered list of levels and breaks.
 	Structure []Level
+	// GameMix is the game mix configuration of the tournament (spec §4.3).
+	GameMix GameMix
 	// CurrentLevel is the 0-based index of the level in progress.
 	CurrentLevel int
 	// LevelEndsAt is the absolute server time the current level ends at.

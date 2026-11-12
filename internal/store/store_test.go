@@ -9,9 +9,9 @@ import (
 
 func testStructure() []core.Level {
 	return []core.Level{
-		{Type: core.LevelTypeLevel, SB: 100, BB: 200, DurationSec: 300},
+		{Type: core.LevelTypeLevel, Format: core.FormatBlindNL, Bets: core.Bets{SB: 100, BB: 200}, DurationSec: 300},
 		{Type: core.LevelTypeBreak, DurationSec: 600},
-		{Type: core.LevelTypeLevel, SB: 200, BB: 400, DurationSec: 300},
+		{Type: core.LevelTypeLevel, Format: core.FormatBlindNL, Bets: core.Bets{SB: 200, BB: 400}, DurationSec: 300},
 	}
 }
 
