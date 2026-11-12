@@ -215,10 +215,23 @@ body.display { background: #000; overflow: hidden; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 2vh 2vw;
+  padding: 6vh 2vw 3vh;
+  gap: 1vh;
   overflow: hidden;
+}
+
+/* The middle of the slot holds the level, the clock and the blinds. It
+   takes the free space, so that the clock stays centred and never runs
+   into the name above or the statistics below. */
+.slot-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2vh;
 }
 
 .slot.empty { color: #333; }
@@ -234,6 +247,17 @@ body.display { background: #000; overflow: hidden; }
   color: #8a93a3;
   letter-spacing: 0.05em;
 }
+
+/* The current level, counted from 1. */
+.slot-level {
+  font-size: clamp(22px, 6vh, 64px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+
+.slot-level:empty { display: none; }
 
 .slot-time {
   font-size: clamp(60px, 22vh, 260px);
@@ -258,10 +282,8 @@ body.display { background: #000; overflow: hidden; }
 .slot-blinds .next { color: #8a93a3; font-weight: 400; }
 
 .slot-stats {
-  position: absolute;
-  bottom: 3vh;
-  left: 0;
-  right: 0;
+  flex: 0 0 auto;
+  width: 100%;
   text-align: center;
   font-size: clamp(12px, 2.6vh, 30px);
   color: #9aa4b4;
@@ -269,12 +291,15 @@ body.display { background: #000; overflow: hidden; }
 
 /* The 2x2 grid has a quarter of the height of a full screen: the type
    has to shrink so that the lines do not collide. */
-.slots[data-slots="4"] .slot { padding: 8vh 1vw 6vh; gap: 4px; }
+.slots[data-slots="4"] .slot { padding: 7vh 1vw 4vh; gap: 4px; }
+.slots[data-slots="4"] .slot-main { gap: 0.6vh; }
+.slots[data-slots="4"] .slot-level { font-size: clamp(16px, 4.5vh, 48px); }
 .slots[data-slots="4"] .slot-time { font-size: clamp(40px, 13vh, 150px); }
 .slots[data-slots="4"] .slot-blinds { font-size: clamp(13px, 3vh, 34px); }
 .slots[data-slots="4"] .slot-name { font-size: clamp(11px, 1.8vh, 22px); }
-.slots[data-slots="4"] .slot-stats { font-size: clamp(10px, 1.9vh, 22px); bottom: 1.5vh; }
+.slots[data-slots="4"] .slot-stats { font-size: clamp(10px, 1.9vh, 22px); }
 .slots[data-slots="4"] .slot-message { font-size: clamp(22px, 7vh, 80px); }
+.slots[data-slots="4"] .overlay-level { font-size: clamp(16px, 4.5vh, 48px); }
 .slots[data-slots="4"] .overlay-title { font-size: clamp(30px, 8vh, 90px); }
 .slots[data-slots="4"] .overlay-time { font-size: clamp(40px, 13vh, 150px); }
 .slots[data-slots="4"] .overlay-sub { font-size: clamp(12px, 2.6vh, 30px); }
@@ -311,3 +336,14 @@ body.display { background: #000; overflow: hidden; }
 }
 
 .overlay-sub { font-size: clamp(16px, 4vh, 48px); color: #dfe4ec; }
+
+/* The level of the break row, shown inside the overlay. */
+.overlay-level {
+  font-size: clamp(20px, 5vh, 56px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  color: #9ecbff;
+}
+
+.overlay-level:empty { display: none; }

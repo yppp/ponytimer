@@ -308,3 +308,44 @@ ok  	github.com/yppp/ponytimer/internal/store
 
 - テスト件数: 37 件（auth 10 / core 16 / httpapi 4 / store 4 + webui・cmd はテストなし）。
 - flaky でないことの確認: `go test ./internal/httpapi/ -run TestTicker -race -count=10` が全 PASS。
+
+---
+
+## 表示改善 Step 1 — 現在レベルの強調表示
+
+対象: `internal/webui` の表示側のみ（サーバー側 API / core / httpapi は変更なし）。
+
+### 変更したファイル
+
+- `internal/webui/static/display.js`
+  - スロットごとに独立したレベル表示要素 `.slot-level` を追加し、`.slot-main`（レベル・タイマー・
+    メッセージ・ブラインドをまとめる箱）を新設。
+  - `setLevel()` を追加: `snapshot.current_level.index` は 0-based なので表示は `index + 1`。
+    `current_level` が null のときは要素を空のままにして `display:none` にし、誤った番号を出さない。
+  - Break overlay にも `.overlay-level` を追加し、同じ `LEVEL n` を出す。Break 行自体が現在行なので
+    ここも `current_level.index + 1`（Break 行の番号）を使う。
+- `internal/webui/static/style.css`
+  - `.slot` を「上（名前・絶対配置）／中央（`.slot-main`）／下（統計）」の 3 段 flex に再構成。
+    `.slot-main` が `flex:1` で空きを吸収するので、レベル要素は名前・統計と重ならず、
+    タイマーは空き領域の中央に留まる。
+  - `.slot-level` は `clamp(22px, 6vh, 64px)` の太字・アクセント色（`--accent`）で、
+    タイマー/ブラインドと同じ情報階層に置いて明示する。分割 4 では `clamp(16px, 4.5vh, 48px)`。
+  - `.overlay-level` を追加（分割 4 では `clamp(16px, 4.5vh, 48px)`）。
+  - 既存 `data-slots=4` の調整（padding / gap / 各フォント）を新レイアウトに合わせて更新。
+
+### 検証結果（Step 1）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+?   	github.com/yppp/ponytimer/internal/webui	[no test files]
+```
+
+- テスト件数: 37 件（webui / cmd はテストなし）。JS の構文は `node --check static/display.js` で確認。
+- ブラウザ実機での目視確認は未実施（この環境にはヘッドレスブラウザが無い。Step 4 のNOTE参照）。

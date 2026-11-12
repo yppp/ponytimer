@@ -38,11 +38,15 @@
     el.className = "slot";
     el.innerHTML =
       '<div class="slot-name"></div>' +
-      '<div class="slot-time"></div>' +
-      '<div class="slot-message"></div>' +
-      '<div class="slot-blinds"></div>' +
+      '<div class="slot-main">' +
+      '  <div class="slot-level"></div>' +
+      '  <div class="slot-time"></div>' +
+      '  <div class="slot-message"></div>' +
+      '  <div class="slot-blinds"></div>' +
+      "</div>" +
       '<div class="slot-stats"></div>' +
       '<div class="overlay" hidden>' +
+      '  <div class="overlay-level"></div>' +
       '  <div class="overlay-title"></div>' +
       '  <div class="overlay-time"></div>' +
       '  <div class="overlay-sub"></div>' +
@@ -54,11 +58,13 @@
       index: index,
       el: el,
       name: el.querySelector(".slot-name"),
+      level: el.querySelector(".slot-level"),
       time: el.querySelector(".slot-time"),
       message: el.querySelector(".slot-message"),
       blinds: el.querySelector(".slot-blinds"),
       stats: el.querySelector(".slot-stats"),
       overlay: el.querySelector(".overlay"),
+      overlayLevel: el.querySelector(".overlay-level"),
       overlayTitle: el.querySelector(".overlay-title"),
       overlayTime: el.querySelector(".overlay-time"),
       overlaySub: el.querySelector(".overlay-sub"),
@@ -167,6 +173,7 @@
 
     var level = snap.current_level;
     slot.name.textContent = snap.tournament_name || "";
+    setLevel(slot, level);
 
     var state = snap.state;
     var remaining = remainingSeconds(slot, snap);
@@ -201,6 +208,20 @@
       slot.overlayTime.textContent = formatTime(remaining);
       slot.overlaySub.textContent = level ? "Next: " + nextBlindsText(snap) : "";
     }
+  }
+
+  // setLevel writes the current level into the slot and into the break
+  // overlay.
+  //
+  // The level index in the snapshot is 0-based, the display counts from 1.
+  // When the tournament has no current level yet, nothing is shown: a
+  // made-up number would be worse than no number.
+  function setLevel(slot, level) {
+    var text = level ? "LEVEL " + (level.index + 1) : "";
+    slot.level.textContent = text;
+    // During a break the current row is the break row itself, so the
+    // overlay shows the number of that row.
+    slot.overlayLevel.textContent = text;
   }
 
   // remainingSeconds computes the remaining time of the current level.
