@@ -503,44 +503,108 @@ body.display { background: #000; overflow: hidden; }
     grid-template-rows: 1fr 1fr;
   }
 
-  .slots[data-slots="2"] .slot-time { font-size: clamp(44px, 17vw, 140px); }
-  .slots[data-slots="2"] .slot-level { font-size: clamp(16px, 6vw, 40px); }
-  .slots[data-slots="2"] .slot-stats { font-size: clamp(11px, 3.2vw, 20px); }
+  .slots[data-slots="2"] .slot,
+  .slots[data-slots="4"] .slot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    grid-template-rows: 1fr;
+    align-items: center;
+    gap: 0 2vw;
+    padding: 5vh 3vw 1vh;
+  }
+  .slots[data-slots="2"] .slot-main,
+  .slots[data-slots="4"] .slot-main { display: contents; }
 
-  /* Four slots are a 2x2 grid: a quarter of the width, so the clock
-     shrinks and the statistics are stacked label by label. */
+  .slots[data-slots="2"] .slot-time,
+  .slots[data-slots="2"] .slot-message,
+  .slots[data-slots="4"] .slot-time,
+  .slots[data-slots="4"] .slot-message {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
+  }
+  .slots[data-slots="2"] .slot-level,
+  .slots[data-slots="2"] .slot-blinds,
+  .slots[data-slots="2"] .slot-stats,
+  .slots[data-slots="4"] .slot-level,
+  .slots[data-slots="4"] .slot-blinds,
+  .slots[data-slots="4"] .slot-stats {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .slots[data-slots="2"] .slot-level,
+  .slots[data-slots="4"] .slot-level { align-self: start; }
+  .slots[data-slots="2"] .slot-blinds,
+  .slots[data-slots="4"] .slot-blinds { align-self: center; }
+  .slots[data-slots="2"] .slot-stats,
+  .slots[data-slots="4"] .slot-stats {
+    align-self: end;
+    align-items: flex-start;
+  }
+  .slots[data-slots="2"] .slot-time { font-size: clamp(44px, 14vw, 90px); }
+  .slots[data-slots="2"] .slot-message { font-size: clamp(20px, 7vw, 60px); }
+  .slots[data-slots="2"] .slot-level { font-size: clamp(16px, 6vw, 30px); }
+  .slots[data-slots="2"] .slot-blinds { font-size: clamp(12px, 4vw, 22px); }
+  .slots[data-slots="2"] .slot-stats { font-size: clamp(11px, 3.2vw, 18px); }
+
+  .slots[data-slots="2"] .stat-row,
+  .slots[data-slots="4"] .stat-row {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 0 0.65em;
+  }
+  .slots[data-slots="2"] .stat,
+  .slots[data-slots="4"] .stat {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 2px;
+  }
+  .slots[data-slots="2"] .stat-label,
+  .slots[data-slots="4"] .stat-label { font-size: 0.68em; }
+
+  /* Four portrait slots are horizontal bands stacked down the screen. */
   .slots[data-slots="4"] {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(4, minmax(0, 1fr));
   }
 
-  .slots[data-slots="4"] .slot { padding: 3vh 1vw 1.5vh; }
-  .slots[data-slots="4"] .slot-time { font-size: clamp(28px, 11vw, 80px); }
-  .slots[data-slots="4"] .slot-level { font-size: clamp(13px, 4.4vw, 30px); }
-  .slots[data-slots="4"] .slot-message { font-size: clamp(15px, 5vw, 40px); }
-  .slots[data-slots="4"] .slot-blinds { font-size: clamp(10px, 3vw, 20px); }
+  .slots[data-slots="4"] .slot {
+    padding: 5vh 3vw 1vh;
+  }
+  .slots[data-slots="4"] .slot-time,
+  .slots[data-slots="4"] .slot-message {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
+    font-size: clamp(40px, 12vw, 56px);
+  }
+  .slots[data-slots="4"] .slot-level {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    font-size: clamp(13px, 3.6vw, 17px);
+  }
+  .slots[data-slots="4"] .slot-blinds {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    font-size: clamp(11px, 3vw, 14px);
+  }
+  .slots[data-slots="4"] .slot-stats { font-size: clamp(10px, 2.8vw, 13px); }
   .slots[data-slots="4"] .slot-name { font-size: clamp(9px, 2.6vw, 15px); }
-  .slots[data-slots="4"] .slot-stats { font-size: clamp(9px, 2.6vw, 15px); }
   .slots[data-slots="4"] .overlay-level { font-size: clamp(13px, 4.4vw, 30px); }
   .slots[data-slots="4"] .overlay-title { font-size: clamp(20px, 8vw, 60px); }
   .slots[data-slots="4"] .overlay-time { font-size: clamp(28px, 11vw, 80px); }
   .slots[data-slots="4"] .overlay-sub { font-size: clamp(10px, 3.4vw, 22px); }
 
-  /* In the 2x2 grid the three primary items would not fit on one line:
-     they are stacked, with the label next to the value. */
+  /* Keep all three primary statistics compact on one line per row. */
   .slots[data-slots="4"] .stat-row {
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
-  }
-
-  .slots[data-slots="4"] .stat {
     flex-direction: row;
+    justify-content: flex-start;
     align-items: baseline;
-    gap: 6px;
+    gap: 0 0.65em;
   }
 
-  .slots[data-slots="4"] .stat-label { font-size: 0.75em; }
   .slots[data-slots="4"] .stat-value { font-size: 1em; }
-  .slots[data-slots="4"] .stat-extra { font-size: 0.6em; }
+  .slots[data-slots="4"] .stat-extra { display: none; }
 }

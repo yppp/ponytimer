@@ -537,3 +537,27 @@ puppeteer + Chromium をインストール**して、表示ページ（fake snap
 - 変更範囲は `internal/webui` のみ（templates/display.html, static/display.js, static/style.css,
   webui_test.go の追加）。サーバー側 API / internal/core / internal/httpapi は変更していない。
 - 分割 1 / 2 / 4 と縦横双方のレイアウトを headless Chrome で確認済み。
+
+## 表示改善 Step 5 — portrait の複数スロットを横長帯に変更
+
+- 実装担当の経緯: 本来の書き手 FCC (MiniMax) がこのステップで3回失敗
+  （NIM応答が16分停止、基盤サービス再起動でセッション消滅、初回応答が8分以上未完）したため、
+  AGENTS.md のルーティングに基づき Codex がフォールバックで実装した。
+- `internal/webui/static/style.css`
+  - portrait の分割 2 は1列×2行を維持しつつ、分割 2 / 4 の各 slot を横長帯に変更。
+    左に残り時間（待機・終了時はメッセージ）、右に LEVEL / ブラインド / 統計を配置する。
+  - portrait の分割 4 は1列×4行。単一スロット、横画面 / TV のルールは変更していない。
+  - 主要統計 PLAYERS / ENTRIES / AVG STACK は両方の帯で残し、ラベルと値を横並びにしている。
+    分割 4 は `.stat-extra`（Rebuys / Addons / Reentries）を非表示にした。帯の高さが画面の約1/4しかなく、
+    副次行を残すと主要3項目の文字を読みにくいサイズまで落とす必要があるため。主要3項目は全て残す。
+- `internal/webui/webui_test.go`
+  - `TestDisplayAssets` で portrait メディアクエリ内の分割 4 が1列指定であることを確認する。
+- 描画確認: 実装時、`/tmp/pt-check/` が存在せず Codex は再インストールしなかったため未実施だったが、
+  コミット前にコーディネーターが `/tmp/pt-check/` に puppeteer + Chromium を再構築して実施した。
+  fake snapshot（paused、LEVEL 4、AVG STACK 133,333、副次項目あり）を返すローカルサーバ経由で、
+  390x844 の分割 2 / 4 ともに PASS: スロットが縦1列に積まれ、時間の中心が LEVEL の中心より左にあり
+  （中心 x = 91 対 279）、主要統計3項目が全て表示され、統計行のはみ出し・横スクロールなし。
+  分割 4 では `.stat-extra` が非表示であることも確認。390x844 分割 1 と 1920x1080 分割 2 / 4 も PASS
+  （横画面の退行なし）。実機（iPhone / Android）の目視確認は未実施。
+- 検証結果: `gofmt -l .` は出力なし、`go vet ./...` は問題なし、`go test ./...` は全パッケージ PASS。
+  既定の Go build cache は読み取り専用だったため、`GOCACHE=/tmp/pt-go-cache` を指定して vet / test を実行した。

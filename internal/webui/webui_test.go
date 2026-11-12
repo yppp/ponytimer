@@ -51,6 +51,19 @@ func TestDisplayAssets(t *testing.T) {
 			t.Errorf("style.css does not contain %q", want)
 		}
 	}
+	portraitAt := strings.Index(style, "@media (orientation: portrait)")
+	if portraitAt < 0 {
+		t.Fatal("style.css does not contain the portrait media section")
+	}
+	fourSlotAt := strings.Index(style[portraitAt:], `.slots[data-slots="4"] {`)
+	if fourSlotAt < 0 {
+		t.Fatal("portrait CSS does not contain a four-slot grid rule")
+	}
+	fourSlotRule := style[portraitAt+fourSlotAt:]
+	ruleEnd := strings.Index(fourSlotRule, "}")
+	if ruleEnd < 0 || !strings.Contains(fourSlotRule[:ruleEnd], "grid-template-columns: 1fr;") {
+		t.Fatal("portrait four-slot grid does not specify one column")
+	}
 }
 
 // renderDisplayPage renders the display page and returns its body.
