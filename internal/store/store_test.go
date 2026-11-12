@@ -12,6 +12,13 @@ func testStructure() []core.Level {
 		{Type: core.LevelTypeLevel, Format: core.FormatBlindNL, Bets: core.Bets{SB: 100, BB: 200}, DurationSec: 300},
 		{Type: core.LevelTypeBreak, DurationSec: 600},
 		{Type: core.LevelTypeLevel, Format: core.FormatBlindNL, Bets: core.Bets{SB: 200, BB: 400}, DurationSec: 300},
+		{
+			Type:        core.LevelTypeLevel,
+			Game:        "Stud Hi-Lo",
+			Format:      core.FormatStudLimit,
+			Bets:        core.Bets{BringIn: 25, Complete: 100, Ante: 25},
+			DurationSec: 300,
+		},
 	}
 }
 
@@ -31,6 +38,12 @@ func TestTournamentRoundTrip(t *testing.T) {
 	clock := core.NewFakeClock(base)
 
 	tr := core.NewTournament("t1", "Test Tournament", testStructure(), clock)
+	tr.GameMix = core.GameMix{
+		Games:          []string{"NLHE", "Stud Hi-Lo"},
+		StudEnabled:    true,
+		StudShowBigBet: true,
+		LevelsPerGame:  2,
+	}
 	tr.StartingStack = 1000
 	tr.RebuyStack = 1500
 	tr.AddonChips = 2000
@@ -94,6 +107,15 @@ func TestTournamentRoundTrip(t *testing.T) {
 	if loaded.StartingStack != tr.StartingStack || loaded.RebuyStack != tr.RebuyStack ||
 		loaded.AddonChips != tr.AddonChips {
 		t.Fatalf("stacks = %+v, want %+v", loaded, tr)
+	}
+	if !loaded.GameMix.StudEnabled || !loaded.GameMix.StudShowBigBet {
+		t.Fatalf("game mix = %+v, want stud enabled and big bet shown", loaded.GameMix)
+	}
+	if len(loaded.GameMix.Games) != 2 || loaded.GameMix.Games[1] != "Stud Hi-Lo" {
+		t.Fatalf("game mix games = %v, want [NLHE Stud Hi-Lo]", loaded.GameMix.Games)
+	}
+	if got := loaded.GameMix.EffectiveLevelsPerGame(); got != 2 {
+		t.Fatalf("effective levels per game = %d, want 2", got)
 	}
 }
 

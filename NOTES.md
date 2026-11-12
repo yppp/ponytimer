@@ -688,3 +688,23 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
 - テスト結果: `gofmt -l .` は出力なし、`go vet ./...` は問題なし、
   `go test ./...` は全パッケージ PASS。既定の Go build cache が読み取り専用の
   ため `GOCACHE=/tmp/pt-go-cache` を指定して実行した。
+
+### 実装メモ (Step B: store / API / スナップショット)
+
+- 変更ファイル:
+  - `internal/httpapi/handlers.go`: 作成リクエストに `game_mix` を追加し
+    `Tournament.GameMix` に反映。バリデーションに format の検査を追加
+    (`core.ValidFormat`: 空 / blind-nl / blind-limit / stud-limit 以外で 400)。
+  - `internal/httpapi/create_test.go` (新規): 旧形式 (フラット sb/bb/ante、
+    format 無し) のレベル JSON が作成 API を通ることを確認 (bets への畳み込みと
+    format=blind-nl の補完を snapshot で検証)。game_mix + 3 形式の作成テスト、
+    不正な format の 400 テスト。
+  - `internal/store/store_test.go`: 往復テストに game_mix と stud 行
+    (bring_in / complete / ante) を追加。
+- 決めたこと:
+  - 旧形式のレベル JSON は API のデコード時に core の migration を通るため、
+    API 側に特別な後処理は無い (core 側の責務)。
+  - format の不正は「level %d has an unknown format ...」という行番号付き
+    エラーで 400。
+- テスト結果: `gofmt -l .` は出力なし、`go vet ./...` は問題なし、
+  `go test ./...` は全パッケージ PASS (`GOCACHE=/tmp/pt-go-cache`)。
