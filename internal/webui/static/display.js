@@ -185,20 +185,20 @@
       slot.time.textContent = "";
       slot.message.textContent = "Waiting To Begin";
       slot.blinds.innerHTML = "";
-      slot.stats.textContent = "";
+      slot.stats.innerHTML = statsHTML(snap);
       return;
     }
     if (state === "finished") {
       slot.time.textContent = "";
       slot.message.textContent = "Finished";
       slot.blinds.innerHTML = "";
-      slot.stats.textContent = "";
+      slot.stats.innerHTML = statsHTML(snap);
       return;
     }
 
     slot.time.textContent = formatTime(remaining);
     slot.blinds.innerHTML = blindsHTML(snap);
-    slot.stats.innerHTML = statsText(snap);
+    slot.stats.innerHTML = statsHTML(snap);
 
     if (state === "break") {
       // Spec §7.1: during a break the whole slot shows the break, with the
@@ -279,14 +279,33 @@
     return parts.join(" / ");
   }
 
-  function statsText(snap) {
-    var parts = [];
-    parts.push("Players " + snap.players_left + " / " + snap.entries);
-    if (snap.rebuys) parts.push("Rebuys " + snap.rebuys);
-    if (snap.addons) parts.push("Addons " + snap.addons);
-    if (snap.reentries) parts.push("Reentries " + snap.reentries);
-    parts.push("Avg stack " + fmt(Math.round(snap.average_stack || 0)));
-    return parts.join(" &nbsp;·&nbsp; ");
+  // statsHTML builds the statistics block of a slot.
+  //
+  // The three primary numbers (players, entries, average stack) are
+  // separate items with a label, so that they can be read at a glance
+  // from a distance. The secondary numbers (rebuys, addons, reentries)
+  // stay on a small line below and are only shown when there are any.
+  // The values are the ones of the snapshot, nothing is computed here.
+  function statsHTML(snap) {
+    var items = [
+      statItem("PLAYERS", fmt(snap.players_left || 0)),
+      statItem("ENTRIES", fmt(snap.entries || 0)),
+      statItem("AVG STACK", fmt(Math.round(snap.average_stack || 0)))
+    ];
+    var html = '<div class="stat-row">' + items.join("") + "</div>";
+    var extra = [];
+    if (snap.rebuys) extra.push("Rebuys " + fmt(snap.rebuys));
+    if (snap.addons) extra.push("Addons " + fmt(snap.addons));
+    if (snap.reentries) extra.push("Reentries " + fmt(snap.reentries));
+    if (extra.length) {
+      html += '<div class="stat-extra">' + extra.join(" &nbsp;·&nbsp; ") + "</div>";
+    }
+    return html;
+  }
+
+  function statItem(label, value) {
+    return '<div class="stat"><span class="stat-label">' + label +
+      '</span><span class="stat-value">' + value + "</span></div>";
   }
 
   function fmt(n) {

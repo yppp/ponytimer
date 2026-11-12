@@ -349,3 +349,55 @@ ok  	github.com/yppp/ponytimer/internal/store
 
 - テスト件数: 37 件（webui / cmd はテストなし）。JS の構文は `node --check static/display.js` で確認。
 - ブラウザ実機での目視確認は未実施（この環境にはヘッドレスブラウザが無い。Step 4 のNOTE参照）。
+
+---
+
+## 表示改善 Step 2 — 統計（プレイヤー数 / エントリー数 / 平均スタック）の格上げ
+
+対象: `internal/webui` の表示側のみ（サーバー側 API / core / httpapi は変更なし）。
+
+### 変更したファイル
+
+- `internal/webui/static/display.js`
+  - 1 行に押し込んでいた `statsText()` をやめ、`statsHTML()` でラベル付きの項目として描画。
+    - `PLAYERS` = `players_left`
+    - `ENTRIES` = `entries`
+    - `AVG STACK` = `average_stack`（既存どおり `Math.round` 後に `fmt` で桁区切り）
+  - 副次項目（Rebuys / Addons / Reentries）は `.stat-extra` の小さい補助行に残す。
+    0 件のときは既存の趣旨どおり行ごと出さない。
+  - 値を捏造せず snapshot の値をそのまま使う。開始前の `average_stack` も snapshot の値を出し、
+    フロント側で starting stack から計算しない。
+  - `waiting`（"Waiting To Begin"）と `finished`（"Finished"）でも統計を表示する。
+    メッセージは従来どおり維持し、統計は消さない。
+  - `running` / `paused` / `break` でも同じ統計領域を使う。Break 中は overlay がスロットを覆うため
+    overlay 側に統計は複製しない（-overlay を閉じた通常レイアウトで正しく描画される）。
+- `internal/webui/static/style.css`
+  - `.slot-stats` を flex 列（主項目行 + 補助行）にし、`.stat-row` は `flex-wrap: wrap`、
+    `.stat` はラベル/値の縦組み。ラベルは 0.5em・`letter-spacing: 0.14em`（`text-indent` で字面の中央を補正）、
+    値は 1em・太字・`tabular-nums`。
+  - 分割 4 では `.slot-stats` のフォントを `clamp(10px, 1.9vh, 22px)` に縮め、
+    `.stat-row` は折り返し可能なので 3 項目が潰れずに並ぶ／折り返される。
+
+### 検証結果（Step 2）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+?   	github.com/yppp/ponytimer/internal/webui	[no test files]
+```
+
+- テスト件数: 37 件。JS の構文は `node --check static/display.js` で確認。
+- この環境にはヘッドレスブラウザが無いため、DOM を最小スタブして `display.js` を実行する
+  スモークテスト(`/tmp` の一時スクリプト、コミット対象外)を作成し、running / paused / break /
+  waiting / finished の各状態で描画される HTML を確認した。
+  - 教訓: この過程で `statsText()` への呼び出し残し（未定義関数による例外）が 1 件見つかり、
+    実行時エラーで統計が空になる状態だったため `statsHTML()` 呼び出しへ修正済み。
+  - 確認できた内容: `LEVEL 3`（index+1）、`PLAYERS 87` / `ENTRIES 120` / `AVG STACK 13,448` が
+    5 状態すべてで描画されること、Rebuys/Addons/Reentries が 0 のとき補助行が出ないこと、
+    1 件以上あるときだけ補助行が出ること。
