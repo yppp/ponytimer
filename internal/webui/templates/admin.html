@@ -41,6 +41,30 @@ break,10
 400,800,0,20</textarea>
       </div>
       <p class="sub">One level per line: <code>sb,bb,ante,minutes</code> or <code>break,minutes</code>.</p>
+      <p class="sub">
+        A level line can carry the optional prefixes <code>game=<name></code> and
+        <code>fmt=<format></code> (in any order). The format decides the columns:
+        <code>blind-nl</code> is <code>sb,bb,ante,minutes</code>,
+        <code>blind-limit</code> is <code>sb,bb,big_bet,ante,minutes</code>
+        (an empty or <code>-</code> big bet is derived from the BB) and
+        <code>stud-limit</code> is <code>bring_in,complete,ante,minutes</code>.
+        Example: <code>fmt=blind-limit 100,200,400,0,20</code> or
+        <code>game=Stud fmt=stud-limit 25,100,25,20</code>.
+      </p>
+      <div class="row">
+        <label for="games">Games</label>
+        <input id="games" name="games" type="text" placeholder="NLHE, PLO, Stud Hi-Lo">
+        <label for="levels_per_game">Levels per game</label>
+        <input id="levels_per_game" name="levels_per_game" type="number" min="1" step="1" value="1">
+      </div>
+      <div class="row">
+        <label for="stud_enabled">Stud rounds</label>
+        <input id="stud_enabled" name="stud_enabled" type="checkbox">
+        <label for="stud_show_big_bet">Stud BIG BET</label>
+        <input id="stud_show_big_bet" name="stud_show_big_bet" type="checkbox">
+      </div>
+      <p class="sub">Game mix: the games that rotate, one game every
+        <em>levels per game</em> levels. Leave the games empty for a single game.</p>
       <button type="submit">Create tournament</button>
       <p id="create-error" class="error" hidden></p>
     </form>

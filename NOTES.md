@@ -708,3 +708,29 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
     エラーで 400。
 - テスト結果: `gofmt -l .` は出力なし、`go vet ./...` は問題なし、
   `go test ./...` は全パッケージ PASS (`GOCACHE=/tmp/pt-go-cache`)。
+
+### 実装メモ (Step C: 管理画面の入力拡張)
+
+※ 本ステップのコードは前任コーディネーターのセッションで書かれ、セッション中断により
+未コミットのまま作業ツリーに残っていたものを、継続コーディネーターが精査・検証して
+コミットした。内容は設計メモどおりで、修正なしで採用した。
+
+- 変更ファイル:
+  - `internal/webui/static/admin.js`: `parseLevels` を `parseLevel` に分割し、
+    行プレフィックス `game=<名前>` / `fmt=<format>` (順不同・任意) に対応。
+    カンマ列は format で切替 (blind-nl: sb,bb,ante,minutes /
+    blind-limit: sb,bb,big_bet,ante,minutes (big_bet の空・`-` は 0 = 導出) /
+    stud-limit: bring_in,complete,ante,minutes)。旧記法はそのまま blind-nl に通る。
+    出力は新形式 `{type, format, bets, game?, duration_sec}` (break は bets 無し)。
+    `gameMix()` を追加し、作成リクエストに `game_mix` を含める。
+    `describe` / `describeLevel` を snapshot の bets / format ベースに書き換え、
+    BIG BET の導出 (blind-limit は BB×2、stud は `stud_show_big_bet` のときだけ
+    COMPLETE×2) と game 名の表示に対応。
+  - `internal/webui/templates/admin.html`: 新記法のヘルプ文とゲームミックス設定欄
+    (games テキスト、levels_per_game 数値、stud_enabled / stud_show_big_bet
+    チェックボックス) を追加。
+- 検証 (継続コーディネーター実施):
+  - `node --check` OK。parseLevels を抽出して実行するハーネスで 8 ケース確認:
+    旧記法 (フラット + break)、blind-limit の big_bet 導出/明示、stud + game 前置、
+    前置の順序入替、不正な format / 列数 / 前置のエラー。
+  - `gofmt -l .` 出力なし、`go vet ./...` 問題なし、`go test ./...` 全パッケージ PASS。

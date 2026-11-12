@@ -29,43 +29,159 @@
     errorEl.textContent = "";
   }
 
+  // FORMATS are the level formats the admin page can write.
+  var FORMATS = ["blind-nl", "blind-limit", "stud-limit"];
+
   // parseLevels reads the levels text area.
   //
   // Every line is either "sb,bb,ante,minutes" or "break,minutes". The
   // minutes are converted to seconds.
+  //
+  // A level line can carry the optional prefixes "game=<name>" and
+  // "fmt=<format>" (in any order, both optional). The format decides
+  // the shape of the comma list:
+  //
+  //   blind-nl:    sb,bb,ante,minutes
+  //   blind-limit: sb,bb,big_bet,ante,minutes
+  //   stud-limit:  bring_in,complete,ante,minutes
+  //
+  // An empty or "-" big bet means 0: the display derives it from the BB.
   function parseLevels(text) {
     var levels = [];
     var lines = text.split("\n");
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i].trim();
       if (!line) continue;
-      var parts = line.split(",").map(function (part) {
-        return part.trim();
-      });
-      var minutes = parseFloat(parts[parts.length - 1]);
-      if (isNaN(minutes) || minutes <= 0) {
-        throw new Error("line " + (i + 1) + ": the duration must be a positive number of minutes");
-      }
-      var duration = Math.round(minutes * 60);
-      if (parts[0].toLowerCase() === "break") {
-        levels.push({ type: "break", sb: 0, bb: 0, ante: 0, duration_sec: duration });
-        continue;
-      }
-      if (parts.length !== 4) {
-        throw new Error("line " + (i + 1) + ": expected sb,bb,ante,minutes");
-      }
-      var sb = parseInt(parts[0], 10);
-      var bb = parseInt(parts[1], 10);
-      var ante = parseInt(parts[2], 10);
-      if (isNaN(sb) || isNaN(bb) || isNaN(ante)) {
-        throw new Error("line " + (i + 1) + ": the blinds must be numbers");
-      }
-      levels.push({ type: "level", sb: sb, bb: bb, ante: ante, duration_sec: duration });
+      levels.push(parseLevel(line, i + 1));
     }
     if (levels.length === 0) {
       throw new Error("the tournament needs at least one level");
     }
     return levels;
+  }
+
+  // parseLevel parses one line of the levels text area.
+  function parseLevel(line, lineNo) {
+    var tokens = line.split(/\s+/).filter(function (token) {
+      return token !== "";
+    });
+    var game = "";
+    var format = "";
+    var data = "";
+    for (var i = 0; i < tokens.length; i++) {
+      var token = tokens[i];
+      var eq = token.indexOf("=");
+      if (eq > 0) {
+        var key = token.slice(0, eq);
+        var value = token.slice(eq + 1);
+        if (key === "game") {
+          if (!value) {
+            throw new Error("line " + lineNo + ": the game name is empty");
+          }
+          game = value;
+          continue;
+        }
+        if (key === "fmt") {
+          if (FORMATS.indexOf(value) < 0) {
+            throw new Error("line " + lineNo + ": unknown format " + value +
+              " (blind-nl, blind-limit or stud-limit)");
+          }
+          format = value;
+          continue;
+        }
+        throw new Error("line " + lineNo + ": unknown prefix " + key + " (game or fmt)");
+      }
+      if (data) {
+        throw new Error("line " + lineNo + ": only one comma list per line");
+      }
+      data = token;
+    }
+    if (!data) {
+      throw new Error("line " + lineNo + ": the line has no level");
+    }
+
+    var parts = data.split(",").map(function (part) {
+      return part.trim();
+    });
+    var minutes = parseFloat(parts[parts.length - 1]);
+    if (isNaN(minutes) || minutes <= 0) {
+      throw new Error("line " + lineNo + ": the duration must be a positive number of minutes");
+    }
+    var duration = Math.round(minutes * 60);
+
+    if (parts[0].toLowerCase() === "break") {
+      return { type: "break", duration_sec: duration };
+    }
+
+    if (!format) format = "blind-nl";
+    if (format === "blind-limit") {
+      if (parts.length !== 5) {
+        throw new Error("line " + lineNo + ": expected sb,bb,big_bet,ante,minutes");
+      }
+      var sb = parseInt(parts[0], 10);
+      var bb = parseInt(parts[1], 10);
+      var bigBet = (parts[2] === "" || parts[2] === "-") ? 0 : parseInt(parts[2], 10);
+      var ante = parseInt(parts[3], 10);
+      if (isNaN(sb) || isNaN(bb) || isNaN(bigBet) || isNaN(ante)) {
+        throw new Error("line " + lineNo + ": the forced bets must be numbers");
+      }
+      return level("blind-limit", game, {
+        sb: sb, bb: bb, big_bet: bigBet, ante: ante
+      }, duration);
+    }
+    if (format === "stud-limit") {
+      if (parts.length !== 4) {
+        throw new Error("line " + lineNo + ": expected bring_in,complete,ante,minutes");
+      }
+      var bringIn = parseInt(parts[0], 10);
+      var complete = parseInt(parts[1], 10);
+      var ante = parseInt(parts[2], 10);
+      if (isNaN(bringIn) || isNaN(complete) || isNaN(ante)) {
+        throw new Error("line " + lineNo + ": the forced bets must be numbers");
+      }
+      return level("stud-limit", game, {
+        bring_in: bringIn, complete: complete, ante: ante
+      }, duration);
+    }
+    // blind-nl
+    if (parts.length !== 4) {
+      throw new Error("line " + lineNo + ": expected sb,bb,ante,minutes");
+    }
+    var sb = parseInt(parts[0], 10);
+    var bb = parseInt(parts[1], 10);
+    var ante = parseInt(parts[2], 10);
+    if (isNaN(sb) || isNaN(bb) || isNaN(ante)) {
+      throw new Error("line " + lineNo + ": the blinds must be numbers");
+    }
+    return level("blind-nl", game, { sb: sb, bb: bb, ante: ante }, duration);
+  }
+
+  // level builds one level row of the structure.
+  function level(format, game, bets, duration) {
+    var lvl = { type: "level", format: format, bets: bets, duration_sec: duration };
+    if (game) lvl.game = game;
+    return lvl;
+  }
+
+  // gameMix reads the game mix settings of the create form.
+  //
+  // The games are a comma separated list of game types; the list may be
+  // empty for a tournament without a mix. One level per game is the
+  // default of the rotation.
+  function gameMix() {
+    var games = document.getElementById("games").value.split(",").map(function (game) {
+      return game.trim();
+    }).filter(function (game) {
+      return game !== "";
+    });
+    var levelsPerGame = parseInt(document.getElementById("levels_per_game").value, 10);
+    if (isNaN(levelsPerGame) || levelsPerGame < 1) levelsPerGame = 1;
+    return {
+      games: games,
+      stud_enabled: document.getElementById("stud_enabled").checked,
+      stud_show_big_bet: document.getElementById("stud_show_big_bet").checked,
+      levels_per_game: levelsPerGame
+    };
   }
 
   function createTournament() {
@@ -82,7 +198,8 @@
       starting_stack: parseInt(document.getElementById("starting_stack").value, 10) || 0,
       rebuy_stack: parseInt(document.getElementById("rebuy_stack").value, 10) || 0,
       addon_chips: parseInt(document.getElementById("addon_chips").value, 10) || 0,
-      levels: levels
+      levels: levels,
+      game_mix: gameMix()
     };
     if (!body.name) {
       showError("the tournament needs a name");
@@ -220,6 +337,49 @@
     return el;
   }
 
+  // describe writes the forced bets of a level the way its format asks
+  // for it (spec §7.7).
+  //
+  // The BIG BET is derived when the row has none: the BB times two for a
+  // blind limit game, the COMPLETE times two for a stud game.
+  function describeLevel(level, mix) {
+    var bets = level.bets || {};
+    var format = level.format || "blind-nl";
+    var parts = [];
+    if (format === "blind-limit") {
+      pushBet(parts, "SB", bets.sb);
+      pushBet(parts, "BB", bets.bb);
+      pushBet(parts, "BIG BET", bigBet(bets, bets.bb));
+      pushBet(parts, "ANTE", bets.ante);
+    } else if (format === "stud-limit") {
+      pushBet(parts, "BRING-IN", bets.bring_in);
+      pushBet(parts, "COMPLETE", bets.complete);
+      pushBet(parts, "ANTE", bets.ante);
+      // A stud game shows the BIG BET only when it is asked for.
+      if (mix && mix.stud_show_big_bet) {
+        pushBet(parts, "BIG BET", bigBet(bets, bets.complete));
+      }
+    } else {
+      pushBet(parts, "SB", bets.sb);
+      pushBet(parts, "BB", bets.bb);
+      pushBet(parts, "ANTE", bets.ante);
+    }
+    return parts.join(" / ");
+  }
+
+  // bigBet returns the BIG BET of a row: its own value, or the fallback
+  // (the BB or the COMPLETE) times two.
+  function bigBet(bets, fallback) {
+    if (bets.big_bet) return bets.big_bet;
+    return (fallback || 0) * 2;
+  }
+
+  // pushBet adds a forced bet to the parts, unless it is not set.
+  function pushBet(parts, label, value) {
+    if (!value) return;
+    parts.push(label + " " + value);
+  }
+
   function describe(snap) {
     var level = snap.current_level;
     var parts = [];
@@ -227,14 +387,17 @@
       if (level.type === "break") {
         parts.push("Break");
       } else {
-        parts.push("Level " + (level.index + 1) + ": SB " + level.sb + " / BB " + level.bb +
-          (level.ante ? " / Ante " + level.ante : ""));
+        parts.push("Level " + (level.index + 1) +
+          (level.game ? " — " + level.game : "") + ": " +
+          describeLevel(level, snap.game_mix));
       }
     }
     if (snap.next_level) {
       parts.push(snap.next_level.type === "break"
         ? "next: break"
-        : "next: SB " + snap.next_level.sb + " / BB " + snap.next_level.bb);
+        : "next: " +
+          (snap.next_level.game ? snap.next_level.game + " — " : "") +
+          describeLevel(snap.next_level, snap.game_mix));
     }
     if (snap.state === "paused") {
       parts.push("paused with " + Math.round(snap.remaining_sec) + "s left");
