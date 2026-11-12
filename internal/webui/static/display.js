@@ -203,6 +203,12 @@
     if (state === "break") {
       // Spec §7.1: during a break the whole slot shows the break, with the
       // remaining time in the same huge type as the playing levels.
+      // The overlay repeats the level and the clock, so the ones behind
+      // it are cleared: otherwise they would shine through the overlay
+      // a second time.
+      slot.level.textContent = "";
+      slot.time.textContent = "";
+      slot.blinds.innerHTML = "";
       slot.overlay.hidden = false;
       slot.overlayTitle.textContent = "BREAK";
       slot.overlayTime.textContent = formatTime(remaining);

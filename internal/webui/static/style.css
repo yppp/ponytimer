@@ -201,6 +201,9 @@ body.display { background: #000; overflow: hidden; }
   display: grid;
   gap: 8px;
   height: 100vh;
+  /* The dynamic viewport height follows the address bar of a phone.
+     Browsers that do not know it keep the 100vh above. */
+  height: 100dvh;
   width: 100vw;
 }
 
@@ -342,7 +345,7 @@ body.display { background: #000; overflow: hidden; }
 .slots[data-slots="4"] .slot-time { font-size: clamp(40px, 13vh, 150px); }
 .slots[data-slots="4"] .slot-blinds { font-size: clamp(13px, 3vh, 34px); }
 .slots[data-slots="4"] .slot-name { font-size: clamp(11px, 1.8vh, 22px); }
-.slots[data-slots="4"] .slot-stats { font-size: clamp(10px, 1.9vh, 22px); }
+.slots[data-slots="4"] .slot-stats { font-size: clamp(11px, 2.2vh, 26px); }
 .slots[data-slots="4"] .slot-message { font-size: clamp(22px, 7vh, 80px); }
 .slots[data-slots="4"] .overlay-level { font-size: clamp(16px, 4.5vh, 48px); }
 .slots[data-slots="4"] .overlay-title { font-size: clamp(30px, 8vh, 90px); }
@@ -427,4 +430,117 @@ body.display { background: #000; overflow: hidden; }
   color: #fff;
   background: rgba(79, 140, 255, 0.9);
   border-color: var(--accent);
+}
+
+/* ---- portrait layout (phones held upright) ---- */
+
+/* The rules for the upright layout live in their own media query, so
+   that the landscape layout of a TV or a laptop stays as it is. The
+   maximum width covers a narrow window on a desktop screen as well. */
+@media (orientation: portrait), (max-width: 560px) {
+  /* A strip at the bottom of the page keeps the fullscreen button clear
+     of the statistics of the bottom slots. */
+  .slots {
+    padding-bottom: 56px;
+  }
+
+  .fullscreen-btn {
+    right: 8px;
+    bottom: 8px;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+  }
+
+  .slot {
+    padding: 3.5vh 2vw 1.5vh;
+    gap: 6px;
+  }
+
+  .slot-main { gap: 6px; }
+
+  .slot-name {
+    top: 1.5vh;
+    font-size: clamp(11px, 3.4vw, 20px);
+  }
+
+  .slot-level {
+    font-size: clamp(16px, 6vw, 44px);
+    letter-spacing: 0.1em;
+  }
+
+  .slot-time {
+    font-size: clamp(40px, 18vw, 150px);
+  }
+
+  .slot-message {
+    font-size: clamp(20px, 7vw, 60px);
+  }
+
+  .slot-blinds {
+    font-size: clamp(12px, 4vw, 30px);
+  }
+
+  .slot-stats {
+    font-size: clamp(11px, 3.4vw, 22px);
+    gap: 3px;
+  }
+
+  .stat-row { gap: 0.2em 0.9em; }
+
+  .overlay-level { font-size: clamp(16px, 5vw, 40px); }
+  .overlay-title { font-size: clamp(28px, 10vw, 80px); }
+  .overlay-time { font-size: clamp(40px, 18vw, 150px); }
+  .overlay-sub { font-size: clamp(13px, 4.4vw, 32px); }
+
+  /* One slot fills the whole screen. */
+  .slots[data-slots="1"] .slot-time { font-size: clamp(48px, 21vw, 190px); }
+  .slots[data-slots="1"] .slot-level { font-size: clamp(18px, 7vw, 48px); }
+  .slots[data-slots="1"] .slot-stats { font-size: clamp(12px, 4vw, 26px); }
+
+  /* Two slots are stacked: one column, two rows. */
+  .slots[data-slots="2"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .slots[data-slots="2"] .slot-time { font-size: clamp(44px, 17vw, 140px); }
+  .slots[data-slots="2"] .slot-level { font-size: clamp(16px, 6vw, 40px); }
+  .slots[data-slots="2"] .slot-stats { font-size: clamp(11px, 3.2vw, 20px); }
+
+  /* Four slots are a 2x2 grid: a quarter of the width, so the clock
+     shrinks and the statistics are stacked label by label. */
+  .slots[data-slots="4"] {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .slots[data-slots="4"] .slot { padding: 3vh 1vw 1.5vh; }
+  .slots[data-slots="4"] .slot-time { font-size: clamp(28px, 11vw, 80px); }
+  .slots[data-slots="4"] .slot-level { font-size: clamp(13px, 4.4vw, 30px); }
+  .slots[data-slots="4"] .slot-message { font-size: clamp(15px, 5vw, 40px); }
+  .slots[data-slots="4"] .slot-blinds { font-size: clamp(10px, 3vw, 20px); }
+  .slots[data-slots="4"] .slot-name { font-size: clamp(9px, 2.6vw, 15px); }
+  .slots[data-slots="4"] .slot-stats { font-size: clamp(9px, 2.6vw, 15px); }
+  .slots[data-slots="4"] .overlay-level { font-size: clamp(13px, 4.4vw, 30px); }
+  .slots[data-slots="4"] .overlay-title { font-size: clamp(20px, 8vw, 60px); }
+  .slots[data-slots="4"] .overlay-time { font-size: clamp(28px, 11vw, 80px); }
+  .slots[data-slots="4"] .overlay-sub { font-size: clamp(10px, 3.4vw, 22px); }
+
+  /* In the 2x2 grid the three primary items would not fit on one line:
+     they are stacked, with the label next to the value. */
+  .slots[data-slots="4"] .stat-row {
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .slots[data-slots="4"] .stat {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .slots[data-slots="4"] .stat-label { font-size: 0.75em; }
+  .slots[data-slots="4"] .stat-value { font-size: 1em; }
+  .slots[data-slots="4"] .stat-extra { font-size: 0.6em; }
 }

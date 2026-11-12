@@ -450,3 +450,90 @@ ok  	github.com/yppp/ponytimer/internal/store
   - もう一度クリック → `exitFullscreen` 呼び出し → 復帰後に `⛶ FULLSCREEN` / `aria-pressed=false`
   - Wake Lock は `navigator.wakeLock.request()` が reject する想定で、**未処理の Promise rejection は 0 件**
     （reject を握り潰していることを確認）。
+
+---
+
+## 表示改善 Step 4 — スマホ縦画面（portrait）向けレスポンシブ対応
+
+対象: `internal/webui` の表示側のみ（サーバー側 API / core / httpapi は変更なし）。
+
+### 変更したファイル
+
+- `internal/webui/static/style.css`
+  - 縦画面用のルールを `@media (orientation: portrait), (max-width: 560px)` の中に閉じ込めた。
+    横画面・TV（16:9）の既存レイアウトには一切触れていない（既存の `data-slots` 調整もそのまま尊重）。
+  - `.slots` に `height: 100dvh` を追加（未対応ブラウザは上の `100vh` を使う。スマホの
+    アドレスバー追従のため）。
+  - 縦画面では `.slots` に `padding-bottom: 56px` を確保し、右下のフルスクリーンボタンと
+    下段スロットの統計が重ならないようにした（横画面は `padding-bottom` なしで従来どおり）。
+  - タイマーを `vw` ベースの `clamp()` にして viewport 幅に追従:
+    - 分割 1: `clamp(48px, 21vw, 190px)`（390px 幅で 82px）
+    - 分割 2（縦積み 1列×2行）: `clamp(44px, 17vw, 140px)`
+    - 分割 4（2列×2行）: `clamp(28px, 11vw, 80px)`
+    - LEVEL / ブラインド / メッセージ / overlay も同じ思路で `vw` ベースに変更。
+  - 縦画面の分割 2 は `grid-template-columns: 1fr; grid-template-rows: 1fr 1fr;`（縦積み）。
+    分割 4 は 2列×2行。
+  - 縦画面の分割 4 では統計の 3 項目が 1 行に収まらないため `.stat-row` を縦積み、
+    `.stat` はラベルと値を横に並べる（省略や画面外への脱落なし）。
+  - 分割 4（横画面）の統計を `clamp(11px, 2.2vh, 26px)` に上げ、遠目でも読めるようにした。
+- `internal/webui/static/display.js`
+  - Break 中は overlay がスロット内の level / time / blinds と重なって二重に見えていたため、
+    overlay 側で同じ内容(Level / 残り時間 / Next) shown する間は裏側の 3 つを空にする。
+    （overlay の LEVEL 表示は Step 1 のとおり Break 行の番号。）
+- `internal/webui/webui_test.go`（新規）
+  - `TestDisplayAssets`: 埋め込み済み|display.html / display.js / style.css に、
+    レベル表示・統計 3 項目・フルスクリーン操作・portrait メディアクエリがあることを確認する
+    静的スモークテスト。ブラウザが無い CI でも表示の要が抜け落ちないことを保証する。
+
+### 検証結果（Step 4）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+ok  	github.com/yppp/ponytimer/internal/webui
+```
+
+- テスト件数: 38 件（webui に 1 件追加）。
+
+#### 描画確認（headless Chrome、実機代わりに実施）
+
+この環境にはヘッドレスブラウザが無かったため、**リポジトリ外（`/tmp`）に一時的に
+puppeteer + Chromium をインストール**して、表示ページ（fake snapshot を返すローカル HTTP サーバ経由）
+を実際に描画した。プロジェクト側の依存には一切入れていない（`go.mod` / `package.json` の変更なし）。
+
+確認した組み合わせと結果（すべて「横はみ出しなし・要素のスロット外はみ出しなし・
+統計とフルスクリーンボタンの重なりなし」）:
+
+| 状態 | ビューポート | 分割 | 結果 |
+|---|---|---|---|
+| running | 390x844 | 1 | ok |
+| running | 390x844 | 2（縦積み） | ok |
+| running | 390x844 | 4（2x2） | ok |
+| running | 360x800 | 4（2x2） | ok |
+| running | 430x932 | 2（縦積み） | ok |
+| running | 1920x1080 | 1 / 2 / 4 | ok |
+| waiting | 390x844 | 1 | ok |
+| break | 390x844 | 1 | ok |
+
+- 判定はスクリプトで機械的に行った: `document.documentElement.scrollWidth <= innerWidth`（横はみ出しなし）、
+  各スロットの子要素（level / time / message / blinds / stats / name）の bounding box が
+  スロットの矩形内であること、統計の実コンテンツ（`.stat-row` / `.stat-extra`）が
+  フルスクリーンボタンの矩形と交わらないこと。
+- この過程で 1 件实际问题を発見して修正した: Break 中に overlay の LEVEL/タイマーと
+  スロット裏側の LEVEL/タイマーが重なって二重に見えていた（overlay 側を空にする修正）。
+- スクリーンショットは `/tmp/pt-check/shots/` に置いた（リポジトリには入れていない）。
+- **実機（iPhone/Android の実ブラウザ）での目視確認は未実施**。headless Chrome の描画結果と
+  数値判定による確認まで。実機（iPhone / Android の Safari, Chrome）では
+  Safari の `dvh` 対応差やノッチ領域の見え方は別途確認が要る。
+
+### この 4 ステップ全体について
+
+- 変更範囲は `internal/webui` のみ（templates/display.html, static/display.js, static/style.css,
+  webui_test.go の追加）。サーバー側 API / internal/core / internal/httpapi は変更していない。
+- 分割 1 / 2 / 4 と縦横双方のレイアウトを headless Chrome で確認済み。
