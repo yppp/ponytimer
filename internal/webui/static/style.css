@@ -201,6 +201,9 @@ body.display { background: #000; overflow: hidden; }
   display: grid;
   gap: 8px;
   height: 100vh;
+  /* The dynamic viewport height follows the address bar of a phone.
+     Browsers that do not know it keep the 100vh above. */
+  height: 100dvh;
   width: 100vw;
 }
 
@@ -215,10 +218,23 @@ body.display { background: #000; overflow: hidden; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 2vh 2vw;
+  padding: 6vh 2vw 3vh;
+  gap: 1vh;
   overflow: hidden;
+}
+
+/* The middle of the slot holds the level, the clock and the blinds. It
+   takes the free space, so that the clock stays centred and never runs
+   into the name above or the statistics below. */
+.slot-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2vh;
 }
 
 .slot.empty { color: #333; }
@@ -234,6 +250,17 @@ body.display { background: #000; overflow: hidden; }
   color: #8a93a3;
   letter-spacing: 0.05em;
 }
+
+/* The current level, counted from 1. */
+.slot-level {
+  font-size: clamp(22px, 6vh, 64px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+
+.slot-level:empty { display: none; }
 
 .slot-time {
   font-size: clamp(60px, 22vh, 260px);
@@ -257,24 +284,70 @@ body.display { background: #000; overflow: hidden; }
 
 .slot-blinds .next { color: #8a93a3; font-weight: 400; }
 
+/* The statistics: three labelled primary items, plus a small line with
+   the secondary numbers. */
 .slot-stats {
-  position: absolute;
-  bottom: 3vh;
-  left: 0;
-  right: 0;
-  text-align: center;
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4vh;
   font-size: clamp(12px, 2.6vh, 30px);
   color: #9aa4b4;
 }
 
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 0.2em 1.2em;
+  max-width: 100%;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1em;
+  min-width: 0;
+}
+
+.stat-label {
+  font-size: 0.5em;
+  line-height: 1.1;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+  text-transform: uppercase;
+  color: #6f7a8c;
+}
+
+.stat-value {
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #dfe4ec;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-extra {
+  font-size: 0.5em;
+  letter-spacing: 0.06em;
+  color: #6f7a8c;
+}
+
 /* The 2x2 grid has a quarter of the height of a full screen: the type
    has to shrink so that the lines do not collide. */
-.slots[data-slots="4"] .slot { padding: 8vh 1vw 6vh; gap: 4px; }
+.slots[data-slots="4"] .slot { padding: 7vh 1vw 4vh; gap: 4px; }
+.slots[data-slots="4"] .slot-main { gap: 0.6vh; }
+.slots[data-slots="4"] .slot-level { font-size: clamp(16px, 4.5vh, 48px); }
 .slots[data-slots="4"] .slot-time { font-size: clamp(40px, 13vh, 150px); }
 .slots[data-slots="4"] .slot-blinds { font-size: clamp(13px, 3vh, 34px); }
 .slots[data-slots="4"] .slot-name { font-size: clamp(11px, 1.8vh, 22px); }
-.slots[data-slots="4"] .slot-stats { font-size: clamp(10px, 1.9vh, 22px); bottom: 1.5vh; }
+.slots[data-slots="4"] .slot-stats { font-size: clamp(11px, 2.2vh, 26px); }
 .slots[data-slots="4"] .slot-message { font-size: clamp(22px, 7vh, 80px); }
+.slots[data-slots="4"] .overlay-level { font-size: clamp(16px, 4.5vh, 48px); }
 .slots[data-slots="4"] .overlay-title { font-size: clamp(30px, 8vh, 90px); }
 .slots[data-slots="4"] .overlay-time { font-size: clamp(40px, 13vh, 150px); }
 .slots[data-slots="4"] .overlay-sub { font-size: clamp(12px, 2.6vh, 30px); }
@@ -311,3 +384,227 @@ body.display { background: #000; overflow: hidden; }
 }
 
 .overlay-sub { font-size: clamp(16px, 4vh, 48px); color: #dfe4ec; }
+
+/* The level of the break row, shown inside the overlay. */
+.overlay-level {
+  font-size: clamp(20px, 5vh, 56px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  color: #9ecbff;
+}
+
+.overlay-level:empty { display: none; }
+
+/* ---- fullscreen control ---- */
+
+/* One button for the whole page, whatever the number of slots is. It
+   sits in the corner, out of the way of the slot information. */
+.fullscreen-btn {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 30;
+  margin: 0;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #cfd6e2;
+  background: rgba(28, 33, 41, 0.75);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  opacity: 0.6;
+}
+
+.fullscreen-btn:hover,
+.fullscreen-btn:focus-visible {
+  opacity: 1;
+  background: rgba(42, 47, 56, 0.95);
+}
+
+/* The state of the button follows the state of the page. */
+.fullscreen-btn[aria-pressed="true"] {
+  opacity: 1;
+  color: #fff;
+  background: rgba(79, 140, 255, 0.9);
+  border-color: var(--accent);
+}
+
+/* ---- portrait layout (phones held upright) ---- */
+
+/* The rules for the upright layout live in their own media query, so
+   that the landscape layout of a TV or a laptop stays as it is. The
+   maximum width covers a narrow window on a desktop screen as well. */
+@media (orientation: portrait), (max-width: 560px) {
+  /* A strip at the bottom of the page keeps the fullscreen button clear
+     of the statistics of the bottom slots. */
+  .slots {
+    padding-bottom: 56px;
+  }
+
+  .fullscreen-btn {
+    right: 8px;
+    bottom: 8px;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+  }
+
+  .slot {
+    padding: 3.5vh 2vw 1.5vh;
+    gap: 6px;
+  }
+
+  .slot-main { gap: 6px; }
+
+  .slot-name {
+    top: 1.5vh;
+    font-size: clamp(11px, 3.4vw, 20px);
+  }
+
+  .slot-level {
+    font-size: clamp(16px, 6vw, 44px);
+    letter-spacing: 0.1em;
+  }
+
+  .slot-time {
+    font-size: clamp(40px, 18vw, 150px);
+  }
+
+  .slot-message {
+    font-size: clamp(20px, 7vw, 60px);
+  }
+
+  .slot-blinds {
+    font-size: clamp(12px, 4vw, 30px);
+  }
+
+  .slot-stats {
+    font-size: clamp(11px, 3.4vw, 22px);
+    gap: 3px;
+  }
+
+  .stat-row { gap: 0.2em 0.9em; }
+
+  .overlay-level { font-size: clamp(16px, 5vw, 40px); }
+  .overlay-title { font-size: clamp(28px, 10vw, 80px); }
+  .overlay-time { font-size: clamp(40px, 18vw, 150px); }
+  .overlay-sub { font-size: clamp(13px, 4.4vw, 32px); }
+
+  /* One slot fills the whole screen. */
+  .slots[data-slots="1"] .slot-time { font-size: clamp(48px, 21vw, 190px); }
+  .slots[data-slots="1"] .slot-level { font-size: clamp(18px, 7vw, 48px); }
+  .slots[data-slots="1"] .slot-stats { font-size: clamp(12px, 4vw, 26px); }
+
+  /* Two slots are stacked: one column, two rows. */
+  .slots[data-slots="2"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .slots[data-slots="2"] .slot,
+  .slots[data-slots="4"] .slot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+    grid-template-rows: 1fr;
+    align-items: center;
+    gap: 0 2vw;
+    padding: 5vh 3vw 1vh;
+  }
+  .slots[data-slots="2"] .slot-main,
+  .slots[data-slots="4"] .slot-main { display: contents; }
+
+  .slots[data-slots="2"] .slot-time,
+  .slots[data-slots="2"] .slot-message,
+  .slots[data-slots="4"] .slot-time,
+  .slots[data-slots="4"] .slot-message {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
+  }
+  .slots[data-slots="2"] .slot-level,
+  .slots[data-slots="2"] .slot-blinds,
+  .slots[data-slots="2"] .slot-stats,
+  .slots[data-slots="4"] .slot-level,
+  .slots[data-slots="4"] .slot-blinds,
+  .slots[data-slots="4"] .slot-stats {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .slots[data-slots="2"] .slot-level,
+  .slots[data-slots="4"] .slot-level { align-self: start; }
+  .slots[data-slots="2"] .slot-blinds,
+  .slots[data-slots="4"] .slot-blinds { align-self: center; }
+  .slots[data-slots="2"] .slot-stats,
+  .slots[data-slots="4"] .slot-stats {
+    align-self: end;
+    align-items: flex-start;
+  }
+  .slots[data-slots="2"] .slot-time { font-size: clamp(44px, 14vw, 90px); }
+  .slots[data-slots="2"] .slot-message { font-size: clamp(20px, 7vw, 60px); }
+  .slots[data-slots="2"] .slot-level { font-size: clamp(16px, 6vw, 30px); }
+  .slots[data-slots="2"] .slot-blinds { font-size: clamp(12px, 4vw, 22px); }
+  .slots[data-slots="2"] .slot-stats { font-size: clamp(11px, 3.2vw, 18px); }
+
+  .slots[data-slots="2"] .stat-row,
+  .slots[data-slots="4"] .stat-row {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 0 0.65em;
+  }
+  .slots[data-slots="2"] .stat,
+  .slots[data-slots="4"] .stat {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 2px;
+  }
+  .slots[data-slots="2"] .stat-label,
+  .slots[data-slots="4"] .stat-label { font-size: 0.68em; }
+
+  /* Four portrait slots are horizontal bands stacked down the screen. */
+  .slots[data-slots="4"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(4, minmax(0, 1fr));
+  }
+
+  .slots[data-slots="4"] .slot {
+    padding: 5vh 3vw 1vh;
+  }
+  .slots[data-slots="4"] .slot-time,
+  .slots[data-slots="4"] .slot-message {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
+    font-size: clamp(40px, 12vw, 56px);
+  }
+  .slots[data-slots="4"] .slot-level {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    font-size: clamp(13px, 3.6vw, 17px);
+  }
+  .slots[data-slots="4"] .slot-blinds {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    font-size: clamp(11px, 3vw, 14px);
+  }
+  .slots[data-slots="4"] .slot-stats { font-size: clamp(10px, 2.8vw, 13px); }
+  .slots[data-slots="4"] .slot-name { font-size: clamp(9px, 2.6vw, 15px); }
+  .slots[data-slots="4"] .overlay-level { font-size: clamp(13px, 4.4vw, 30px); }
+  .slots[data-slots="4"] .overlay-title { font-size: clamp(20px, 8vw, 60px); }
+  .slots[data-slots="4"] .overlay-time { font-size: clamp(28px, 11vw, 80px); }
+  .slots[data-slots="4"] .overlay-sub { font-size: clamp(10px, 3.4vw, 22px); }
+
+  /* Keep all three primary statistics compact on one line per row. */
+  .slots[data-slots="4"] .stat-row {
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: baseline;
+    gap: 0 0.65em;
+  }
+
+  .slots[data-slots="4"] .stat-value { font-size: 1em; }
+  .slots[data-slots="4"] .stat-extra { display: none; }
+}

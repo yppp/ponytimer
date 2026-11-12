@@ -38,11 +38,15 @@
     el.className = "slot";
     el.innerHTML =
       '<div class="slot-name"></div>' +
-      '<div class="slot-time"></div>' +
-      '<div class="slot-message"></div>' +
-      '<div class="slot-blinds"></div>' +
+      '<div class="slot-main">' +
+      '  <div class="slot-level"></div>' +
+      '  <div class="slot-time"></div>' +
+      '  <div class="slot-message"></div>' +
+      '  <div class="slot-blinds"></div>' +
+      "</div>" +
       '<div class="slot-stats"></div>' +
       '<div class="overlay" hidden>' +
+      '  <div class="overlay-level"></div>' +
       '  <div class="overlay-title"></div>' +
       '  <div class="overlay-time"></div>' +
       '  <div class="overlay-sub"></div>' +
@@ -54,11 +58,13 @@
       index: index,
       el: el,
       name: el.querySelector(".slot-name"),
+      level: el.querySelector(".slot-level"),
       time: el.querySelector(".slot-time"),
       message: el.querySelector(".slot-message"),
       blinds: el.querySelector(".slot-blinds"),
       stats: el.querySelector(".slot-stats"),
       overlay: el.querySelector(".overlay"),
+      overlayLevel: el.querySelector(".overlay-level"),
       overlayTitle: el.querySelector(".overlay-title"),
       overlayTime: el.querySelector(".overlay-time"),
       overlaySub: el.querySelector(".overlay-sub"),
@@ -167,6 +173,7 @@
 
     var level = snap.current_level;
     slot.name.textContent = snap.tournament_name || "";
+    setLevel(slot, level);
 
     var state = snap.state;
     var remaining = remainingSeconds(slot, snap);
@@ -178,29 +185,49 @@
       slot.time.textContent = "";
       slot.message.textContent = "Waiting To Begin";
       slot.blinds.innerHTML = "";
-      slot.stats.textContent = "";
+      slot.stats.innerHTML = statsHTML(snap);
       return;
     }
     if (state === "finished") {
       slot.time.textContent = "";
       slot.message.textContent = "Finished";
       slot.blinds.innerHTML = "";
-      slot.stats.textContent = "";
+      slot.stats.innerHTML = statsHTML(snap);
       return;
     }
 
     slot.time.textContent = formatTime(remaining);
     slot.blinds.innerHTML = blindsHTML(snap);
-    slot.stats.innerHTML = statsText(snap);
+    slot.stats.innerHTML = statsHTML(snap);
 
     if (state === "break") {
       // Spec §7.1: during a break the whole slot shows the break, with the
       // remaining time in the same huge type as the playing levels.
+      // The overlay repeats the level and the clock, so the ones behind
+      // it are cleared: otherwise they would shine through the overlay
+      // a second time.
+      slot.level.textContent = "";
+      slot.time.textContent = "";
+      slot.blinds.innerHTML = "";
       slot.overlay.hidden = false;
       slot.overlayTitle.textContent = "BREAK";
       slot.overlayTime.textContent = formatTime(remaining);
       slot.overlaySub.textContent = level ? "Next: " + nextBlindsText(snap) : "";
     }
+  }
+
+  // setLevel writes the current level into the slot and into the break
+  // overlay.
+  //
+  // The level index in the snapshot is 0-based, the display counts from 1.
+  // When the tournament has no current level yet, nothing is shown: a
+  // made-up number would be worse than no number.
+  function setLevel(slot, level) {
+    var text = level ? "LEVEL " + (level.index + 1) : "";
+    slot.level.textContent = text;
+    // During a break the current row is the break row itself, so the
+    // overlay shows the number of that row.
+    slot.overlayLevel.textContent = text;
   }
 
   // remainingSeconds computes the remaining time of the current level.
@@ -258,14 +285,33 @@
     return parts.join(" / ");
   }
 
-  function statsText(snap) {
-    var parts = [];
-    parts.push("Players " + snap.players_left + " / " + snap.entries);
-    if (snap.rebuys) parts.push("Rebuys " + snap.rebuys);
-    if (snap.addons) parts.push("Addons " + snap.addons);
-    if (snap.reentries) parts.push("Reentries " + snap.reentries);
-    parts.push("Avg stack " + fmt(Math.round(snap.average_stack || 0)));
-    return parts.join(" &nbsp;·&nbsp; ");
+  // statsHTML builds the statistics block of a slot.
+  //
+  // The three primary numbers (players, entries, average stack) are
+  // separate items with a label, so that they can be read at a glance
+  // from a distance. The secondary numbers (rebuys, addons, reentries)
+  // stay on a small line below and are only shown when there are any.
+  // The values are the ones of the snapshot, nothing is computed here.
+  function statsHTML(snap) {
+    var items = [
+      statItem("PLAYERS", fmt(snap.players_left || 0)),
+      statItem("ENTRIES", fmt(snap.entries || 0)),
+      statItem("AVG STACK", fmt(Math.round(snap.average_stack || 0)))
+    ];
+    var html = '<div class="stat-row">' + items.join("") + "</div>";
+    var extra = [];
+    if (snap.rebuys) extra.push("Rebuys " + fmt(snap.rebuys));
+    if (snap.addons) extra.push("Addons " + fmt(snap.addons));
+    if (snap.reentries) extra.push("Reentries " + fmt(snap.reentries));
+    if (extra.length) {
+      html += '<div class="stat-extra">' + extra.join(" &nbsp;·&nbsp; ") + "</div>";
+    }
+    return html;
+  }
+
+  function statItem(label, value) {
+    return '<div class="stat"><span class="stat-label">' + label +
+      '</span><span class="stat-value">' + value + "</span></div>";
   }
 
   function fmt(n) {
@@ -278,4 +324,83 @@
       render(slots[i]);
     }
   }, TICK_MS);
+
+  // ---- fullscreen and wake lock ------------------------------------
+  //
+  // The display often runs on a phone or a tablet. The button gives the
+  // page the whole screen, the wake lock keeps the screen on. Both are
+  // best effort: a browser that refuses them must not break the page.
+
+  var fullscreenButton = document.getElementById("fullscreen");
+  var wakeLock = null;
+
+  function inFullscreen() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+
+  function updateFullscreenButton() {
+    if (!fullscreenButton) return;
+    var on = inFullscreen();
+    fullscreenButton.setAttribute("aria-pressed", on ? "true" : "false");
+    fullscreenButton.setAttribute("aria-label", on ? "Exit fullscreen" : "Enter fullscreen");
+    fullscreenButton.title = on ? "Exit fullscreen (Esc)" : "Enter fullscreen";
+    fullscreenButton.textContent = on ? "⛶ EXIT FULLSCREEN" : "⛶ FULLSCREEN";
+  }
+
+  function toggleFullscreen() {
+    try {
+      if (inFullscreen()) {
+        var exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (!exit) return;
+        var done = exit.call(document);
+        if (done && typeof done.catch === "function") done.catch(function () {});
+        return;
+      }
+      var root = document.documentElement;
+      var request = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!request) return;
+      var started = request.call(root);
+      if (started && typeof started.catch === "function") started.catch(function () {});
+    } catch (err) {
+      // A refused request is not an error for the display: the page
+      // simply stays windowed.
+    }
+  }
+
+  function requestWakeLock() {
+    try {
+      if (!navigator || !navigator.wakeLock) return;
+      if (wakeLock && !wakeLock.released) return;
+      navigator.wakeLock.request("screen").then(function (sentinel) {
+        wakeLock = sentinel;
+        if (sentinel && sentinel.addEventListener) {
+          sentinel.addEventListener("release", function () { wakeLock = null; });
+        }
+      }).catch(function () {
+        // Denied or unsupported: the display goes on without it.
+      });
+    } catch (err) {
+      // Same as above: never let the wake lock break the page.
+    }
+  }
+
+  if (fullscreenButton) {
+    fullscreenButton.addEventListener("click", function () {
+      toggleFullscreen();
+      requestWakeLock();
+    });
+    document.addEventListener("fullscreenchange", updateFullscreenButton);
+    document.addEventListener("webkitfullscreenchange", updateFullscreenButton);
+    updateFullscreenButton();
+  }
+
+  // The first user gesture is the safest moment to ask for the wake
+  // lock; the lock is released again when the tab is hidden, so it is
+  // asked for anew when the page becomes visible again.
+  document.addEventListener("click", requestWakeLock);
+  document.addEventListener("keydown", requestWakeLock);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") requestWakeLock();
+  });
+  requestWakeLock();
 })();

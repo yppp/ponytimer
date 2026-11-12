@@ -308,3 +308,256 @@ ok  	github.com/yppp/ponytimer/internal/store
 
 - テスト件数: 37 件（auth 10 / core 16 / httpapi 4 / store 4 + webui・cmd はテストなし）。
 - flaky でないことの確認: `go test ./internal/httpapi/ -run TestTicker -race -count=10` が全 PASS。
+
+---
+
+## 表示改善 Step 1 — 現在レベルの強調表示
+
+対象: `internal/webui` の表示側のみ（サーバー側 API / core / httpapi は変更なし）。
+
+### 変更したファイル
+
+- `internal/webui/static/display.js`
+  - スロットごとに独立したレベル表示要素 `.slot-level` を追加し、`.slot-main`（レベル・タイマー・
+    メッセージ・ブラインドをまとめる箱）を新設。
+  - `setLevel()` を追加: `snapshot.current_level.index` は 0-based なので表示は `index + 1`。
+    `current_level` が null のときは要素を空のままにして `display:none` にし、誤った番号を出さない。
+  - Break overlay にも `.overlay-level` を追加し、同じ `LEVEL n` を出す。Break 行自体が現在行なので
+    ここも `current_level.index + 1`（Break 行の番号）を使う。
+- `internal/webui/static/style.css`
+  - `.slot` を「上（名前・絶対配置）／中央（`.slot-main`）／下（統計）」の 3 段 flex に再構成。
+    `.slot-main` が `flex:1` で空きを吸収するので、レベル要素は名前・統計と重ならず、
+    タイマーは空き領域の中央に留まる。
+  - `.slot-level` は `clamp(22px, 6vh, 64px)` の太字・アクセント色（`--accent`）で、
+    タイマー/ブラインドと同じ情報階層に置いて明示する。分割 4 では `clamp(16px, 4.5vh, 48px)`。
+  - `.overlay-level` を追加（分割 4 では `clamp(16px, 4.5vh, 48px)`）。
+  - 既存 `data-slots=4` の調整（padding / gap / 各フォント）を新レイアウトに合わせて更新。
+
+### 検証結果（Step 1）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+?   	github.com/yppp/ponytimer/internal/webui	[no test files]
+```
+
+- テスト件数: 37 件（webui / cmd はテストなし）。JS の構文は `node --check static/display.js` で確認。
+- ブラウザ実機での目視確認は未実施（この環境にはヘッドレスブラウザが無い。Step 4 のNOTE参照）。
+
+---
+
+## 表示改善 Step 2 — 統計（プレイヤー数 / エントリー数 / 平均スタック）の格上げ
+
+対象: `internal/webui` の表示側のみ（サーバー側 API / core / httpapi は変更なし）。
+
+### 変更したファイル
+
+- `internal/webui/static/display.js`
+  - 1 行に押し込んでいた `statsText()` をやめ、`statsHTML()` でラベル付きの項目として描画。
+    - `PLAYERS` = `players_left`
+    - `ENTRIES` = `entries`
+    - `AVG STACK` = `average_stack`（既存どおり `Math.round` 後に `fmt` で桁区切り）
+  - 副次項目（Rebuys / Addons / Reentries）は `.stat-extra` の小さい補助行に残す。
+    0 件のときは既存の趣旨どおり行ごと出さない。
+  - 値を捏造せず snapshot の値をそのまま使う。開始前の `average_stack` も snapshot の値を出し、
+    フロント側で starting stack から計算しない。
+  - `waiting`（"Waiting To Begin"）と `finished`（"Finished"）でも統計を表示する。
+    メッセージは従来どおり維持し、統計は消さない。
+  - `running` / `paused` / `break` でも同じ統計領域を使う。Break 中は overlay がスロットを覆うため
+    overlay 側に統計は複製しない（-overlay を閉じた通常レイアウトで正しく描画される）。
+- `internal/webui/static/style.css`
+  - `.slot-stats` を flex 列（主項目行 + 補助行）にし、`.stat-row` は `flex-wrap: wrap`、
+    `.stat` はラベル/値の縦組み。ラベルは 0.5em・`letter-spacing: 0.14em`（`text-indent` で字面の中央を補正）、
+    値は 1em・太字・`tabular-nums`。
+  - 分割 4 では `.slot-stats` のフォントを `clamp(10px, 1.9vh, 22px)` に縮め、
+    `.stat-row` は折り返し可能なので 3 項目が潰れずに並ぶ／折り返される。
+
+### 検証結果（Step 2）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+?   	github.com/yppp/ponytimer/internal/webui	[no test files]
+```
+
+- テスト件数: 37 件。JS の構文は `node --check static/display.js` で確認。
+- この環境にはヘッドレスブラウザが無いため、DOM を最小スタブして `display.js` を実行する
+  スモークテスト(`/tmp` の一時スクリプト、コミット対象外)を作成し、running / paused / break /
+  waiting / finished の各状態で描画される HTML を確認した。
+  - 教訓: この過程で `statsText()` への呼び出し残し（未定義関数による例外）が 1 件見つかり、
+    実行時エラーで統計が空になる状態だったため `statsHTML()` 呼び出しへ修正済み。
+  - 確認できた内容: `LEVEL 3`（index+1）、`PLAYERS 87` / `ENTRIES 120` / `AVG STACK 13,448` が
+    5 状態すべてで描画されること、Rebuys/Addons/Reentries が 0 のとき補助行が出ないこと、
+    1 件以上あるときだけ補助行が出ること。
+
+---
+
+## 表示改善 Step 3 — フルスクリーンボタンと Wake Lock
+
+対象: `internal/webui` の表示側のみ（サーバー側 API / core / httpapi は変更なし）。
+
+### 変更したファイル
+
+- `internal/webui/templates/display.html`
+  - ページ全体に 1 つだけ常設するフルスクリーンボタン（`#fullscreen`）を追加。
+    スロット数（1/2/4），不管，始终 1 つだけ。
+    `aria-pressed="false"` / `aria-label="Enter fullscreen"` / `title` / 文言で全画面操作だと分かる。
+- `internal/webui/static/display.js`
+  - `toggleFullscreen()`: fullscreen でなければ `document.documentElement.requestFullscreen()`、
+    fullscreen 中なら `document.exitFullscreen()`。どちらも Promise の rejection は握り潰し、
+    API が無い場合は何もしない（例外はページへ漏らさない）。
+  - `updateFullscreenButton()`: `fullscreenchange`（および webkit 版）でボタンの文言・`aria-pressed`・
+    `aria-label`・`title` を現在の状態に追従させる。
+  - `requestWakeLock()`: `navigator.wakeLock` があれば best effort で `screen` ロックを要求する。
+    失敗・拒否・例外はすべて握り潰し、ログにも出さない。ロックは `release` イベントで片付ける。
+    起動時・ユーザー操作（クリック/キー操作）時・`visibilitychange` で visible に戻った時に再取得を試みる。
+- `internal/webui/static/style.css`
+  - `.fullscreen-btn`: `position: fixed` の右下（`right/bottom: 12px`, `z-index: 30`）、
+    控えめ（`opacity: 0.6`）だが十分なタップ領域（`min-height: 44px`）、hover/focus で濃くする。
+    `aria-pressed="true"`（全画面中）はアクセント色で塗り、状態が目で分かる。
+
+### 検証結果（Step 3）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+?   	github.com/yppp/ponytimer/internal/webui	[no test files]
+```
+
+- テスト件数: 37 件。JS の構文は `node --check static/display.js` で確認。
+- DOM をスタブした一時スクリプト（`/tmp`、コミット対象外）でフルスクリーンの経路を確認した:
+  - ボタン初期表示 `⛶ FULLSCREEN` / `aria-pressed=false`
+  - クリック → `requestFullscreen` 呼び出し（1 回）→ `fullscreenchange` 後に
+    `⛶ EXIT FULLSCREEN` / `aria-pressed=true` / `aria-label="Exit fullscreen"`
+  - もう一度クリック → `exitFullscreen` 呼び出し → 復帰後に `⛶ FULLSCREEN` / `aria-pressed=false`
+  - Wake Lock は `navigator.wakeLock.request()` が reject する想定で、**未処理の Promise rejection は 0 件**
+    （reject を握り潰していることを確認）。
+
+---
+
+## 表示改善 Step 4 — スマホ縦画面（portrait）向けレスポンシブ対応
+
+対象: `internal/webui` の表示側のみ（サーバー側 API / core / httpapi は変更なし）。
+
+### 変更したファイル
+
+- `internal/webui/static/style.css`
+  - 縦画面用のルールを `@media (orientation: portrait), (max-width: 560px)` の中に閉じ込めた。
+    横画面・TV（16:9）の既存レイアウトには一切触れていない（既存の `data-slots` 調整もそのまま尊重）。
+  - `.slots` に `height: 100dvh` を追加（未対応ブラウザは上の `100vh` を使う。スマホの
+    アドレスバー追従のため）。
+  - 縦画面では `.slots` に `padding-bottom: 56px` を確保し、右下のフルスクリーンボタンと
+    下段スロットの統計が重ならないようにした（横画面は `padding-bottom` なしで従来どおり）。
+  - タイマーを `vw` ベースの `clamp()` にして viewport 幅に追従:
+    - 分割 1: `clamp(48px, 21vw, 190px)`（390px 幅で 82px）
+    - 分割 2（縦積み 1列×2行）: `clamp(44px, 17vw, 140px)`
+    - 分割 4（2列×2行）: `clamp(28px, 11vw, 80px)`
+    - LEVEL / ブラインド / メッセージ / overlay も同じ思路で `vw` ベースに変更。
+  - 縦画面の分割 2 は `grid-template-columns: 1fr; grid-template-rows: 1fr 1fr;`（縦積み）。
+    分割 4 は 2列×2行。
+  - 縦画面の分割 4 では統計の 3 項目が 1 行に収まらないため `.stat-row` を縦積み、
+    `.stat` はラベルと値を横に並べる（省略や画面外への脱落なし）。
+  - 分割 4（横画面）の統計を `clamp(11px, 2.2vh, 26px)` に上げ、遠目でも読めるようにした。
+- `internal/webui/static/display.js`
+  - Break 中は overlay がスロット内の level / time / blinds と重なって二重に見えていたため、
+    overlay 側で同じ内容(Level / 残り時間 / Next) shown する間は裏側の 3 つを空にする。
+    （overlay の LEVEL 表示は Step 1 のとおり Break 行の番号。）
+- `internal/webui/webui_test.go`（新規）
+  - `TestDisplayAssets`: 埋め込み済み|display.html / display.js / style.css に、
+    レベル表示・統計 3 項目・フルスクリーン操作・portrait メディアクエリがあることを確認する
+    静的スモークテスト。ブラウザが無い CI でも表示の要が抜け落ちないことを保証する。
+
+### 検証結果（Step 4）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+ok  	github.com/yppp/ponytimer/internal/webui
+```
+
+- テスト件数: 38 件（webui に 1 件追加）。
+
+#### 描画確認（headless Chrome、実機代わりに実施）
+
+この環境にはヘッドレスブラウザが無かったため、**リポジトリ外（`/tmp`）に一時的に
+puppeteer + Chromium をインストール**して、表示ページ（fake snapshot を返すローカル HTTP サーバ経由）
+を実際に描画した。プロジェクト側の依存には一切入れていない（`go.mod` / `package.json` の変更なし）。
+
+確認した組み合わせと結果（すべて「横はみ出しなし・要素のスロット外はみ出しなし・
+統計とフルスクリーンボタンの重なりなし」）:
+
+| 状態 | ビューポート | 分割 | 結果 |
+|---|---|---|---|
+| running | 390x844 | 1 | ok |
+| running | 390x844 | 2（縦積み） | ok |
+| running | 390x844 | 4（2x2） | ok |
+| running | 360x800 | 4（2x2） | ok |
+| running | 430x932 | 2（縦積み） | ok |
+| running | 1920x1080 | 1 / 2 / 4 | ok |
+| waiting | 390x844 | 1 | ok |
+| break | 390x844 | 1 | ok |
+
+- 判定はスクリプトで機械的に行った: `document.documentElement.scrollWidth <= innerWidth`（横はみ出しなし）、
+  各スロットの子要素（level / time / message / blinds / stats / name）の bounding box が
+  スロットの矩形内であること、統計の実コンテンツ（`.stat-row` / `.stat-extra`）が
+  フルスクリーンボタンの矩形と交わらないこと。
+- この過程で 1 件实际问题を発見して修正した: Break 中に overlay の LEVEL/タイマーと
+  スロット裏側の LEVEL/タイマーが重なって二重に見えていた（overlay 側を空にする修正）。
+- スクリーンショットは `/tmp/pt-check/shots/` に置いた（リポジトリには入れていない）。
+- **実機（iPhone/Android の実ブラウザ）での目視確認は未実施**。headless Chrome の描画結果と
+  数値判定による確認まで。実機（iPhone / Android の Safari, Chrome）では
+  Safari の `dvh` 対応差やノッチ領域の見え方は別途確認が要る。
+
+### この 4 ステップ全体について
+
+- 変更範囲は `internal/webui` のみ（templates/display.html, static/display.js, static/style.css,
+  webui_test.go の追加）。サーバー側 API / internal/core / internal/httpapi は変更していない。
+- 分割 1 / 2 / 4 と縦横双方のレイアウトを headless Chrome で確認済み。
+
+## 表示改善 Step 5 — portrait の複数スロットを横長帯に変更
+
+- 実装担当の経緯: 本来の書き手 FCC (MiniMax) がこのステップで3回失敗
+  （NIM応答が16分停止、基盤サービス再起動でセッション消滅、初回応答が8分以上未完）したため、
+  AGENTS.md のルーティングに基づき Codex がフォールバックで実装した。
+- `internal/webui/static/style.css`
+  - portrait の分割 2 は1列×2行を維持しつつ、分割 2 / 4 の各 slot を横長帯に変更。
+    左に残り時間（待機・終了時はメッセージ）、右に LEVEL / ブラインド / 統計を配置する。
+  - portrait の分割 4 は1列×4行。単一スロット、横画面 / TV のルールは変更していない。
+  - 主要統計 PLAYERS / ENTRIES / AVG STACK は両方の帯で残し、ラベルと値を横並びにしている。
+    分割 4 は `.stat-extra`（Rebuys / Addons / Reentries）を非表示にした。帯の高さが画面の約1/4しかなく、
+    副次行を残すと主要3項目の文字を読みにくいサイズまで落とす必要があるため。主要3項目は全て残す。
+- `internal/webui/webui_test.go`
+  - `TestDisplayAssets` で portrait メディアクエリ内の分割 4 が1列指定であることを確認する。
+- 描画確認: 実装時、`/tmp/pt-check/` が存在せず Codex は再インストールしなかったため未実施だったが、
+  コミット前にコーディネーターが `/tmp/pt-check/` に puppeteer + Chromium を再構築して実施した。
+  fake snapshot（paused、LEVEL 4、AVG STACK 133,333、副次項目あり）を返すローカルサーバ経由で、
+  390x844 の分割 2 / 4 ともに PASS: スロットが縦1列に積まれ、時間の中心が LEVEL の中心より左にあり
+  （中心 x = 91 対 279）、主要統計3項目が全て表示され、統計行のはみ出し・横スクロールなし。
+  分割 4 では `.stat-extra` が非表示であることも確認。390x844 分割 1 と 1920x1080 分割 2 / 4 も PASS
+  （横画面の退行なし）。実機（iPhone / Android）の目視確認は未実施。
+- 検証結果: `gofmt -l .` は出力なし、`go vet ./...` は問題なし、`go test ./...` は全パッケージ PASS。
+  既定の Go build cache は読み取り専用だったため、`GOCACHE=/tmp/pt-go-cache` を指定して vet / test を実行した。
