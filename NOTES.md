@@ -734,3 +734,36 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
     旧記法 (フラット + break)、blind-limit の big_bet 導出/明示、stud + game 前置、
     前置の順序入替、不正な format / 列数 / 前置のエラー。
   - `gofmt -l .` 出力なし、`go vet ./...` 問題なし、`go test ./...` 全パッケージ PASS。
+
+### 実装メモ (Step D: 表示画面の format 切替)
+
+※ 書き手の経緯: FCC (MiniMax M3.1 Flash) は本ステップで 3 回失敗した
+(1 回目: NIM が HTTP 503 "content safety screening is temporarily unavailable"
+を返した後セッション停止、2 回目: 初回応答が 8 分以上来ずファイル変更ゼロ、
+3 回目: 起動直後に同じ 503 で即時終了)。フォールバックの Codex もこの環境では
+`codex-code-mode-host` バイナリ欠落のため実行自体ができなかった (v0.1 レビュー時と
+同じ既知のブロッカー)。両経路が塞がれているため、本ステップに限り継続
+コーディネーターが設計メモどおりに実装した。
+
+- 変更ファイル:
+  - `internal/webui/static/display.js`:
+    - `betsOf` / `betParts` / `bigBetValue` / `pushBet` を追加し、`blindsHTML` と
+      `nextBlindsText` を snapshot の bets + format で組み立てるよう変更。
+      blind-nl: SB/BB/ANTE、blind-limit: SB/BB/BIG BET/ANTE (BIG BET は
+      bets.big_bet、無ければ BB×2)、stud-limit: BRING-IN/COMPLETE/ANTE
+      (BIG BET は game_mix.stud_show_big_bet のときだけ、bets.big_bet、
+      無ければ COMPLETE×2)。0 / 欠けた項目はラベルごと省略。管理画面
+      admin.js の describeLevel と同じ規則。
+    - 後方互換: format が空なら blind-nl として扱い、`bets` が無い旧
+      スナップショットではフラットな sb/bb/ante にフォールバックする。
+    - `setLevel` は game があれば「LEVEL 3 — NLHE」形式にし、`nextBlindsText`
+      も next の game 名を含める。Break overlay の Next も同じ経路。
+    - CSS は変更なし (PR #13 のレイアウトは不変)。
+  - `internal/webui/webui_test.go`: `TestDisplayAssets` の display.js 含有確認に
+    "BIG BET" / "BRING-IN" / "COMPLETE" を追加。
+- 検証 (コーディネーター実施):
+  - `node --check` OK。関数を抽出するハーネスで 10 ケース確認: blind-nl、
+    blind-limit の BIG BET 導出/明示、stud の BIG BET 入/切、旧形式
+    スナップショット、next の game 名、next が break、現在ブラインドの
+    HTML 結合、桁区切り。
+  - `gofmt -l .` 出力なし、`go vet ./...` 問題なし、`go test ./...` 全パッケージ PASS。
