@@ -392,3 +392,39 @@ body.display { background: #000; overflow: hidden; }
 }
 
 .overlay-level:empty { display: none; }
+
+/* ---- fullscreen control ---- */
+
+/* One button for the whole page, whatever the number of slots is. It
+   sits in the corner, out of the way of the slot information. */
+.fullscreen-btn {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 30;
+  margin: 0;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #cfd6e2;
+  background: rgba(28, 33, 41, 0.75);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  opacity: 0.6;
+}
+
+.fullscreen-btn:hover,
+.fullscreen-btn:focus-visible {
+  opacity: 1;
+  background: rgba(42, 47, 56, 0.95);
+}
+
+/* The state of the button follows the state of the page. */
+.fullscreen-btn[aria-pressed="true"] {
+  opacity: 1;
+  color: #fff;
+  background: rgba(79, 140, 255, 0.9);
+  border-color: var(--accent);
+}

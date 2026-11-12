@@ -401,3 +401,52 @@ ok  	github.com/yppp/ponytimer/internal/store
   - 確認できた内容: `LEVEL 3`（index+1）、`PLAYERS 87` / `ENTRIES 120` / `AVG STACK 13,448` が
     5 状態すべてで描画されること、Rebuys/Addons/Reentries が 0 のとき補助行が出ないこと、
     1 件以上あるときだけ補助行が出ること。
+
+---
+
+## 表示改善 Step 3 — フルスクリーンボタンと Wake Lock
+
+対象: `internal/webui` の表示側のみ（サーバー側 API / core / httpapi は変更なし）。
+
+### 変更したファイル
+
+- `internal/webui/templates/display.html`
+  - ページ全体に 1 つだけ常設するフルスクリーンボタン（`#fullscreen`）を追加。
+    スロット数（1/2/4），不管，始终 1 つだけ。
+    `aria-pressed="false"` / `aria-label="Enter fullscreen"` / `title` / 文言で全画面操作だと分かる。
+- `internal/webui/static/display.js`
+  - `toggleFullscreen()`: fullscreen でなければ `document.documentElement.requestFullscreen()`、
+    fullscreen 中なら `document.exitFullscreen()`。どちらも Promise の rejection は握り潰し、
+    API が無い場合は何もしない（例外はページへ漏らさない）。
+  - `updateFullscreenButton()`: `fullscreenchange`（および webkit 版）でボタンの文言・`aria-pressed`・
+    `aria-label`・`title` を現在の状態に追従させる。
+  - `requestWakeLock()`: `navigator.wakeLock` があれば best effort で `screen` ロックを要求する。
+    失敗・拒否・例外はすべて握り潰し、ログにも出さない。ロックは `release` イベントで片付ける。
+    起動時・ユーザー操作（クリック/キー操作）時・`visibilitychange` で visible に戻った時に再取得を試みる。
+- `internal/webui/static/style.css`
+  - `.fullscreen-btn`: `position: fixed` の右下（`right/bottom: 12px`, `z-index: 30`）、
+    控えめ（`opacity: 0.6`）だが十分なタップ領域（`min-height: 44px`）、hover/focus で濃くする。
+    `aria-pressed="true"`（全画面中）はアクセント色で塗り、状態が目で分かる。
+
+### 検証結果（Step 3）
+
+```
+$ gofmt -l .          # 出力なし
+$ go vet ./...        # 問題なし
+$ go test ./...
+?   	github.com/yppp/ponytimer/cmd/ponytimer	[no test files]
+ok  	github.com/yppp/ponytimer/internal/auth
+ok  	github.com/yppp/ponytimer/internal/core
+ok  	github.com/yppp/ponytimer/internal/httpapi
+ok  	github.com/yppp/ponytimer/internal/store
+?   	github.com/yppp/ponytimer/internal/webui	[no test files]
+```
+
+- テスト件数: 37 件。JS の構文は `node --check static/display.js` で確認。
+- DOM をスタブした一時スクリプト（`/tmp`、コミット対象外）でフルスクリーンの経路を確認した:
+  - ボタン初期表示 `⛶ FULLSCREEN` / `aria-pressed=false`
+  - クリック → `requestFullscreen` 呼び出し（1 回）→ `fullscreenchange` 後に
+    `⛶ EXIT FULLSCREEN` / `aria-pressed=true` / `aria-label="Exit fullscreen"`
+  - もう一度クリック → `exitFullscreen` 呼び出し → 復帰後に `⛶ FULLSCREEN` / `aria-pressed=false`
+  - Wake Lock は `navigator.wakeLock.request()` が reject する想定で、**未処理の Promise rejection は 0 件**
+    （reject を握り潰していることを確認）。

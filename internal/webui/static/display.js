@@ -318,4 +318,83 @@
       render(slots[i]);
     }
   }, TICK_MS);
+
+  // ---- fullscreen and wake lock ------------------------------------
+  //
+  // The display often runs on a phone or a tablet. The button gives the
+  // page the whole screen, the wake lock keeps the screen on. Both are
+  // best effort: a browser that refuses them must not break the page.
+
+  var fullscreenButton = document.getElementById("fullscreen");
+  var wakeLock = null;
+
+  function inFullscreen() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+
+  function updateFullscreenButton() {
+    if (!fullscreenButton) return;
+    var on = inFullscreen();
+    fullscreenButton.setAttribute("aria-pressed", on ? "true" : "false");
+    fullscreenButton.setAttribute("aria-label", on ? "Exit fullscreen" : "Enter fullscreen");
+    fullscreenButton.title = on ? "Exit fullscreen (Esc)" : "Enter fullscreen";
+    fullscreenButton.textContent = on ? "⛶ EXIT FULLSCREEN" : "⛶ FULLSCREEN";
+  }
+
+  function toggleFullscreen() {
+    try {
+      if (inFullscreen()) {
+        var exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (!exit) return;
+        var done = exit.call(document);
+        if (done && typeof done.catch === "function") done.catch(function () {});
+        return;
+      }
+      var root = document.documentElement;
+      var request = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!request) return;
+      var started = request.call(root);
+      if (started && typeof started.catch === "function") started.catch(function () {});
+    } catch (err) {
+      // A refused request is not an error for the display: the page
+      // simply stays windowed.
+    }
+  }
+
+  function requestWakeLock() {
+    try {
+      if (!navigator || !navigator.wakeLock) return;
+      if (wakeLock && !wakeLock.released) return;
+      navigator.wakeLock.request("screen").then(function (sentinel) {
+        wakeLock = sentinel;
+        if (sentinel && sentinel.addEventListener) {
+          sentinel.addEventListener("release", function () { wakeLock = null; });
+        }
+      }).catch(function () {
+        // Denied or unsupported: the display goes on without it.
+      });
+    } catch (err) {
+      // Same as above: never let the wake lock break the page.
+    }
+  }
+
+  if (fullscreenButton) {
+    fullscreenButton.addEventListener("click", function () {
+      toggleFullscreen();
+      requestWakeLock();
+    });
+    document.addEventListener("fullscreenchange", updateFullscreenButton);
+    document.addEventListener("webkitfullscreenchange", updateFullscreenButton);
+    updateFullscreenButton();
+  }
+
+  // The first user gesture is the safest moment to ask for the wake
+  // lock; the lock is released again when the tab is hidden, so it is
+  // asked for anew when the page becomes visible again.
+  document.addEventListener("click", requestWakeLock);
+  document.addEventListener("keydown", requestWakeLock);
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") requestWakeLock();
+  });
+  requestWakeLock();
 })();
