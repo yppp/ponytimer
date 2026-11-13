@@ -1,6 +1,9 @@
 package core
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"sort"
+)
 
 // Level types as defined by the structure editor (spec §8.1).
 const (
@@ -79,6 +82,48 @@ func (l Level) HasMarker(marker string) bool {
 
 // IsBreak reports whether the row is a break row.
 func (l Level) IsBreak() bool { return l.Type == LevelTypeBreak }
+
+// Equal reports whether two rows describe the same level.
+//
+// The index is not compared: it is the position of the row in the structure
+// and is renumbered whenever the structure changes. The format is compared
+// as the effective one, so that the legacy empty format and blind-nl are the
+// same. The markers are compared as a set: a nil list and an empty list are
+// the same.
+func (l Level) Equal(o Level) bool {
+	if l.Type != o.Type || l.Game != o.Game || l.DurationSec != o.DurationSec {
+		return false
+	}
+	if l.Bets != o.Bets {
+		return false
+	}
+	if l.EffectiveFormat() != o.EffectiveFormat() {
+		return false
+	}
+	return equalMarkers(l.Markers, o.Markers)
+}
+
+// equalMarkers reports whether two marker lists hold the same markers.
+//
+// The order does not matter. A nil list and an empty list are the same.
+func equalMarkers(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 {
+		return true
+	}
+	sa := append([]string(nil), a...)
+	sb := append([]string(nil), b...)
+	sort.Strings(sa)
+	sort.Strings(sb)
+	for i := range sa {
+		if sa[i] != sb[i] {
+			return false
+		}
+	}
+	return true
+}
 
 // EffectiveFormat returns the format of the row.
 //

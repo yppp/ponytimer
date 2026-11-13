@@ -1000,3 +1000,80 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
     (マーカー行 7 → 締切 840 分)、R13 (100 entry × 10000 → T=1,000,000、
     BB_end=50,000 → 付録 A の L24、開始 2760 分)、Break 行は AvgBB なし。
   - マーカーの JSON 往復 (行単体と PersistedState の両方で保持)。
+
+### 実装メモ (Step B: API)
+
+2026-11-13 実装。対象は `internal/core` (差分のみ)、`internal/httpapi`、
+`internal/store`。エディタ UI (Step C 以降) は触っていない。
+
+#### 変更ファイル
+
+- `internal/core/level.go`: `Level.Equal(o Level) bool` を追加。`Index` は
+  比較しない (行の位置は構造の変更で振り直される)、`Format` は
+  `EffectiveFormat()` で比較する (空 format と blind-nl は同じ)、Markers は
+  集合として比較する (nil と空スライスは同じ、順序は問わない)。
+- `internal/core/tournament.go`: `ErrFinished` / `ErrStructureLocked` と
+  `Tournament.ReplaceStructure(levels []Level) error` を追加。
+- `internal/httpapi/analyze.go` (新規): `POST /api/structures/analyze`。
+- `internal/httpapi/templates.go` (新規): テンプレートの CRUD。
+- `internal/httpapi/handlers.go`: `GET /api/tournaments/{id}/structure`
+  (`structureResponse` 型と `handleGetStructure`)。
+- `internal/httpapi/commands.go`: `update_structure` コマンド
+  (`commandRequest.Levels`、`validateStructureForSave`)。
+- `internal/httpapi/server.go`: 新しいルートの登録 (すべて要認証)。
+- `internal/store/store.go`: スキーマに `templates` テーブルを追加 (冪等)。
+- `internal/store/templates.go` (新規): `Template` 型と CRUD。
+- テスト: `internal/core/tournament_test.go` (ReplaceStructure 3 件)、
+  `internal/httpapi/analyze_test.go` / `structure_test.go` /
+  `templates_test.go` / `auth_test.go` (追加)、
+  `internal/store/templates_test.go` (新規)。
+
+#### 決めたこと
+
+- `ReplaceStructure` のロック範囲は `CurrentLevel+1` 行 (現レベルを含む)。
+  ロックされた行は `Level.Equal` で現行構造と比べる。`Level.Equal` は
+  `Index` を比較しない: 索引は構造の変更で振り直されるためであり、
+  クライアントが索引を含めない行を送ってもロック判定が壊れない。
+  書換えは成功時に必ず `StructureVersion` を +1 する。
+  `LevelEndsAt` / `RemainingSec` / `CurrentLevel` には触らない (spec §8.5)。
+- `analyze` の issue は httpapi 側の変換型 (`analyzeIssue`) 做出的。severity
+  は `core.IssueSeverity.String()` の "error" / "warn" / "info"。
+  `suggest_after_index` は省略時は最終行 (core の `NextBetSuggestions` の
+  規約に合わせて -1)。JSON の省略と 0 を区別するため `*int` にした。
+- 絶対時刻 (*_ms) は `start_time_ms > 0` のときだけ入れる。終了予定 =
+  start + TotalMin、レイト締切 = start + LateRegCloseMin (締切レベルが
+  あるとき)、R13 到達 = start + EndLevelStartMin (到達する行があるとき)。
+  対象が無ければ 0 のまま。
+- 検証 error がある構造も `analyze` は 200 で issues を返す。400 は JSON が
+  読めないときだけ。
+- `update_structure` は適用前に `core.ValidateStructure` を走らせ、
+  `SeverityError` の issue があればその message を 409 のエラーにする。
+  warn / info は保存を妨げない (spec §8.4)。保存後のイベントは
+  `structure_updated` で、既存の保存・emit の経路に乗る。
+- テンプレートの行 (`Index`) は保存したものをそのまま保持する (採番は
+  読み手の責務)。空の levels は API で 400 に弾くので、store には
+  「空のテンプレート」が入らない。
+- テンプレートの更新は `UPDATE` の後に読み直して返すので、`created_at` は
+  変わらない。存在しない id は `ErrNotFound` (404)。
+- 新しいルートはすべて `/api/` の下なので、セッションなしの呼び出しは
+  既存の `RequireAuth` で 401 JSON になる。
+
+#### テスト結果
+
+- `gofmt -l .` → 出力なし、`go vet ./...` → 問題なし、
+  `go test ./...` → 全パッケージ PASS (core / auth / httpapi / store / webui)。
+- 固定した内容:
+  - core: waiting で全差し替え (version 1)、running で prefix 変更が
+    `ErrStructureLocked`・suffix 変更が成功して version +1、finished で
+    `ErrFinished`。
+  - analyze: 付録 B4 相当の 3 行で `not_clean_value` (warn) が row 1 に出る、
+    TotalMin = 360、suggestions が空でない。壊れた構造 (duration 0) でも
+    200 で `bad_duration` (error) が返る。絶対時刻は start があるときだけ。
+  - structure 取得: 作成したトーナメントの levels が往復する。
+  - update_structure: waiting で差し替え成功 (`structure_updated`、version
+    +1)、開始後に prefix を変えると 409・suffix だけ変えると成功、
+    duration 0 の構造は 409、warn だけの構造 (700/1400) は保存できる。
+  - templates: POST → GET 一覧 → GET 個別 → PUT → DELETE の往復、name 空と
+    levels 空は 400、存在しない id は 404。
+  - store: テンプレートの往復 (levels・markers 込み)、更新で created_at が
+    変わらないこと、存在しない id で ErrNotFound。

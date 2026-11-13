@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS events_tournament_seq ON events (tournament_id, seq);
+
+CREATE TABLE IF NOT EXISTS templates (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	name        TEXT NOT NULL,
+	levels_json TEXT NOT NULL,
+	created_at  INTEGER NOT NULL,
+	updated_at  INTEGER NOT NULL
+);
 `
 
 // Store is the SQLite-backed persistence layer.

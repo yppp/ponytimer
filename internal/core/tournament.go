@@ -12,6 +12,12 @@ var (
 	ErrNotPaused   = errors.New("core: tournament is not paused")
 	ErrNoStructure = errors.New("core: tournament has no structure")
 	ErrNoLevel     = errors.New("core: no such level")
+	// ErrFinished is returned when the tournament has already reached the
+	// end of its structure.
+	ErrFinished = errors.New("core: tournament is finished")
+	// ErrStructureLocked is returned when a structure change would touch
+	// the rows that are already played (spec §8.5).
+	ErrStructureLocked = errors.New("core: structure is locked up to the current level")
 )
 
 // Tournament is the server-authoritative timer aggregate.
@@ -205,6 +211,43 @@ func (t *Tournament) Reset(now time.Time) error {
 	t.LevelEndsAt = nil
 	t.RemainingSec = 0
 	t.state = Waiting
+	return nil
+}
+
+// ReplaceStructure replaces the levels of the tournament (spec §8.5).
+//
+// While the tournament waits the whole structure may be replaced. Once it
+// runs or is paused, the rows up to the current one are locked: the first
+// CurrentLevel+1 rows of the new structure must be the ones that are in
+// play, otherwise ErrStructureLocked is returned. A tournament that is
+// finished cannot be changed at all.
+//
+// The clock of the current level is not touched: LevelEndsAt, RemainingSec
+// and CurrentLevel keep their values. A successful replacement bumps the
+// structure version.
+func (t *Tournament) ReplaceStructure(levels []Level) error {
+	switch t.state {
+	case Finished:
+		return ErrFinished
+	case Waiting:
+		// Nothing has been played yet: the whole structure may change.
+	default:
+		locked := t.CurrentLevel + 1
+		if len(t.Structure) < locked || len(levels) < locked {
+			return ErrStructureLocked
+		}
+		for i := 0; i < locked; i++ {
+			if !t.Structure[i].Equal(levels[i]) {
+				return ErrStructureLocked
+			}
+		}
+	}
+
+	t.Structure = append([]Level(nil), levels...)
+	for i := range t.Structure {
+		t.Structure[i].Index = i
+	}
+	t.StructureVersion++
 	return nil
 }
 
