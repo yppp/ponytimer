@@ -287,6 +287,12 @@
     a.rel = "noopener";
     a.textContent = "Open display";
     link.appendChild(a);
+    var editorLink = document.createElement("a");
+    editorLink.href = "/admin/editor?tournament=" + encodeURIComponent(summary.id);
+    editorLink.textContent = "Edit structure";
+    editorLink.className = "structure-edit-link";
+    link.appendChild(document.createTextNode(" · "));
+    link.appendChild(editorLink);
 
     head.appendChild(title);
     head.appendChild(state);

@@ -51,6 +51,7 @@ func main() {
 	mux.HandleFunc("POST /login", authSvc.LoginPost)
 	mux.HandleFunc("POST /logout", authSvc.LogoutPost)
 	mux.Handle("GET /admin", authSvc.RequireAuth(http.HandlerFunc(webui.RenderAdmin)))
+	mux.Handle("GET /admin/editor", authSvc.RequireAuth(http.HandlerFunc(webui.RenderEditor)))
 	mux.Handle("GET /admin/accounts", authSvc.RequireAuth(http.HandlerFunc(authSvc.AccountsGet)))
 	mux.Handle("POST /admin/accounts", authSvc.RequireAuth(http.HandlerFunc(authSvc.AccountsPost)))
 	mux.HandleFunc("GET /display", webui.RenderDisplay)

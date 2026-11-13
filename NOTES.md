@@ -1077,3 +1077,54 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
     levels 空は 400、存在しない id は 404。
   - store: テンプレートの往復 (levels・markers 込み)、更新で created_at が
     変わらないこと、存在しない id で ErrNotFound。
+
+### 実装メモ (Step C: エディタ UI 基本)
+
+2026-11-13 実装。前任セッションの未コミット部分成果 (`GET /admin/editor` の
+ルート、`RenderEditor`、`editor.html`) を引き継ぎ、HTML の ID 契約を保って
+クライアント UI を実装した。
+
+#### 変更ファイル
+
+- `internal/webui/static/editor.js`: tournament / template / 新規対象の読込、
+  行グリッド・形式別ベット・マーカー・行追加/複製/削除/HTML5 DnD、ゲーム
+  ローテーション、一括時間設定/削除、Undo/Redo、localStorage 下書き、
+  analyze 検証表示、保存を実装。
+- `internal/webui/static/admin.js`: 各トーナメントに構造編集リンクを追加。
+- `internal/webui/static/style.css`: エディタのツールバー、グリッド、ベット、
+  マーカー、検証 severity、ドラッグ、下書きバナー用スタイルを追加。
+- `internal/webui/webui_test.go`: エディタテンプレート描画と editor.js 静的配信
+  の確認を追加。
+- `NOTES.md`: 本メモ。
+
+#### 決定事項・範囲
+
+- 編集モデルは API の level JSON 配列とし、表示上の時間を分、保存値を秒で
+  換算する。セル入力はモデルに即時反映し、入力中のフォーカスを維持する。
+- 新規構造は指定どおり保存を無効化し、トーナメント作成画面への保存導線は
+  後続ステップに残した。
+- 指定範囲外のシミュレーション表示/グラフ、候補 UI、取込/書出、テンプレート
+  選択、ネスト、Break 一括挿入、開催中ロックは追加していない。
+- 検証結果は Go analyze API を利用し、error issue が存在する場合は保存を
+  ブロックする。テンプレートと tournament の下書きキーは kind と ID で分離。
+
+#### 検証
+
+- `node --check internal/webui/static/editor.js`
+- `node --check internal/webui/static/admin.js`
+- `gofmt -l .`
+- `go vet ./...`
+- `GOCACHE=/tmp/pt-go-cache go test ./...`
+
+#### 書き手の経緯 (コーディネーター注記)
+
+- 本ステップは当初 FCC (MiniMax M3.1 Flash) に投入したが 3 回失敗した:
+  1 回目はランタイム再起動でセッション消滅 (成果なし)、2 回目は約 50 分で
+  SIGTERM され部分成果 (ルート / RenderEditor / editor.html) のみ、
+  3 回目は約 97 分で NIM 側のタイムアウト終了 (成果なし)。
+- AGENTS.md のフォールバック規定により Codex に切り替えた。Codex は
+  stdin を閉じる (`< /dev/null`) ことで正常起動し (従来の
+  codex-code-mode-host 欠落は再現しなかった)、約 5 分で本ステップを完走した。
+- コーディネーターが editor.js に小修正を加えた: ドラッグはハンドルからの
+  開始に限定 (入力欄からの誤ドラッグ防止)、保存応答の structure_version を
+  snapshot から読む、新規構造でも下書き復元を行う。

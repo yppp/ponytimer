@@ -608,3 +608,45 @@ body.display { background: #000; overflow: hidden; }
   .slots[data-slots="4"] .stat-value { font-size: 1em; }
   .slots[data-slots="4"] .stat-extra { display: none; }
 }
+
+/* ---- structure editor ---- */
+.editor { max-width: 1500px !important; }
+.editor-head, .editor-toolbar, .editor-params, .editor-actions, .bulk-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.editor-head, .editor-toolbar { justify-content: space-between; }
+.editor-name { min-width: 220px; }
+.editor-name label, .editor-params label { margin: 0; }
+.editor-params input { width: 100px; }
+.editor-actions button, .bulk-panel button { margin-top: 0; }
+.bulk-panel { position: sticky; top: 8px; z-index: 2; }
+.bulk-panel input { width: 100px; }
+.grid-wrap { overflow-x: auto; }
+table.grid { width: 100%; min-width: 1120px; border-collapse: collapse; }
+table.grid th, table.grid td { border-bottom: 1px solid var(--border); padding: 5px; vertical-align: middle; }
+table.grid th { text-align: left; color: var(--muted); font-size: .78rem; }
+table.grid input, table.grid select { min-width: 62px; padding: 6px; }
+table.grid .c-check input { width: auto; }
+table.grid .c-num { width: 36px; text-align: center; }
+table.grid .c-type { width: 100px; }
+table.grid .c-game { width: 130px; }
+table.grid .c-format { width: 130px; }
+.bet-inputs { display: flex; gap: 5px; }
+.bet-field { margin: 0; min-width: 60px; }
+.bet-field span { display: block; font-size: .65rem; }
+.bet-field input { width: 72px; }
+table.grid .c-time input { width: 75px; }
+table.grid .c-cum { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.marker-button, .row-action { margin: 0; padding: 5px 8px; background: #2a2f38; }
+.marker-menu { position: absolute; z-index: 3; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 5px 18px #0008; }
+.marker-menu label { display: flex; align-items: center; gap: 6px; margin: 4px; white-space: nowrap; }
+.marker-menu input { width: auto; }
+.drag-handle { display: inline-block; cursor: grab; padding: 4px; color: var(--muted); }
+tr.dragging { opacity: .45; }
+tr.issue-error { background: rgba(229,72,77,.17); }
+tr.issue-warn { background: rgba(255,212,121,.12); }
+tr.issue-info { background: rgba(79,140,255,.12); }
+tr.issue-focus { outline: 2px solid var(--accent); }
+.issues { padding-left: 22px; }
+.issues li { padding: 6px 8px; cursor: pointer; border-radius: 4px; }
+.issues li.issue-error { color: #ffb4b6; }
+.issues li.issue-warn { color: #ffd479; }
+.issues li.issue-info { color: #9ecbff; }
