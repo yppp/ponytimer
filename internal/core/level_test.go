@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -156,7 +157,7 @@ func TestNewFormatRoundTrips(t *testing.T) {
 	if err := json.Unmarshal(blob, &back); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if back != row {
+	if !reflect.DeepEqual(back, row) {
 		t.Fatalf("round trip = %+v, want %+v", back, row)
 	}
 	if back.EffectiveFormat() != FormatStudLimit {
@@ -184,7 +185,7 @@ func TestNewFormatRoundTrips(t *testing.T) {
 	if err := json.Unmarshal(blob, &backState); err != nil {
 		t.Fatalf("unmarshal state: %v", err)
 	}
-	if len(backState.Structure) != 1 || backState.Structure[0] != row {
+	if len(backState.Structure) != 1 || !reflect.DeepEqual(backState.Structure[0], row) {
 		t.Fatalf("structure = %+v, want %+v", backState.Structure, []Level{row})
 	}
 	if !backState.GameMix.StudEnabled || !backState.GameMix.StudShowBigBet {
@@ -235,6 +236,59 @@ func TestValidFormat(t *testing.T) {
 		if ValidFormat(name) {
 			t.Errorf("ValidFormat(%q) = true, want false", name)
 		}
+	}
+}
+
+// TestMarkersRoundTrip checks that the markers of a row survive the JSON
+// round trip, both on a row and inside a persisted state.
+func TestMarkersRoundTrip(t *testing.T) {
+	row := Level{
+		Index:       3,
+		Type:        LevelTypeLevel,
+		Format:      FormatBlindNL,
+		Bets:        Bets{SB: 500, BB: 1000},
+		DurationSec: 1200,
+		Markers:     []string{MarkerLateRegEnd, MarkerColorUp, "custom_marker"},
+	}
+
+	blob, err := json.Marshal(row)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back Level
+	if err := json.Unmarshal(blob, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !reflect.DeepEqual(back.Markers, row.Markers) {
+		t.Fatalf("markers = %v, want %v", back.Markers, row.Markers)
+	}
+	if !back.HasMarker(MarkerLateRegEnd) || !back.HasMarker(MarkerColorUp) {
+		t.Errorf("markers = %v, want the late registration and the color up", back.Markers)
+	}
+	if back.HasMarker(MarkerRebuyEnd) {
+		t.Errorf("markers = %v, want no rebuy end", back.Markers)
+	}
+
+	// The markers are part of the persisted state as well.
+	state := PersistedState{
+		ID:        "t1",
+		Name:      "Markers",
+		Structure: []Level{row},
+		State:     "waiting",
+	}
+	blob, err = json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	var backState PersistedState
+	if err := json.Unmarshal(blob, &backState); err != nil {
+		t.Fatalf("unmarshal state: %v", err)
+	}
+	if len(backState.Structure) != 1 {
+		t.Fatalf("structure length = %d, want 1", len(backState.Structure))
+	}
+	if !reflect.DeepEqual(backState.Structure[0].Markers, row.Markers) {
+		t.Fatalf("markers = %v, want %v", backState.Structure[0].Markers, row.Markers)
 	}
 }
 

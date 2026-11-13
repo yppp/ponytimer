@@ -926,3 +926,77 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
 - (d) 取込/書出、テンプレート、ネスト、候補提示、Break 一括挿入
 - (e) シミュレーション表示 + 圧迫度グラフ
 - (f) 開催中ロック (UI 表示と操作禁止; サーバー検証は (b))
+
+### 実装メモ (Step A: core の検証・シミュレーション)
+
+2026-11-13 実装。対象は `internal/core` のみ (httpapi / store / webui は
+触っていない)。
+
+#### 変更ファイル
+
+- `internal/core/level.go`: `Level.Markers []string` (json `markers,omitempty`)
+  を追加。定数 `MarkerLateRegEnd` / `MarkerRebuyEnd` / `MarkerColorUp` /
+  `MarkerAddonBreak` と補助メソッド `HasMarker`。`Level` は独自
+  `UnmarshalJSON` を持つため、raw 構造体にも markers を追加して永続化で
+  消えないようにした。
+- `internal/core/ladder.go` (新規): マスター梯子と「綺麗な組」の判定。
+- `internal/core/validate.go` (新規): `ValidateStructure` と
+  `ValidationIssue` / `ValidateOptions` / `IssueSeverity`。
+- `internal/core/simulate.go` (新規): `Simulate` / `Simulation` / `SimRow` と
+  `NextBetSuggestions` / `BetSuggestion`。
+- `internal/core/ladder_test.go`, `validate_test.go`, `simulate_test.go`
+  (新規), `level_test.go` (マーカーの往復テストを追加)。
+- `internal/core/level_test.go`, `internal/store/store_test.go`: `Level` に
+  スライス	field が入って `==` で比較できなくなったため、構造体の比較を
+  `reflect.DeepEqual` に変更 (閾値や判定は変えない)。既存の挙動は不变。
+
+#### 決めたこと
+
+- 梯子の仮数部: 末尾の 0 を剥がした値で判定する (1500→15、1000→1、
+  1200→12、250000→25)。集合は {1, 2, 3, 4, 5, 6, 8, 12, 15, 16, 25}。
+  16 (=1.6) は B2 の旧主流形で legacy 扱い。浮動小数点は一切使わず、
+  割り算は整数演算と gcd による既約分数で行う。
+- 正規ペア表は BB 仮数部 → SB/BB の既約分数: 1→{1/2}、12→{1/2}、
+  15→{2/3}、16→{1/2}、2→{1/2}、25→{2/5, 1/2}、3→{1/2, 2/3}、
+  4→{1/2}、5→{1/2, 3/5}、6→{1/2}、8→{1/2}。設計メモの「BB 仮数部 →
+  許される SB 仮数部」表 (1.2→{0.6} など) を同一指数の比に翻訳した
+  もので、内容は同じ。
+- 提案の選び方: BB が梯子値でないときは「BB 以上の最小の梯子値」に
+  移し、その BB の正規比のうち元の sb/bb に最も近い比で SB を作る。
+  距離の比較は分数として正確に行い、同距離なら小さい比を優先。
+  例: 700/1400 → 1000/1500、800/1500 → 1000/1500。
+- `not_clean_value` (BB が梯子値でない) と `not_clean_pair` (BB は梯子値
+  だが組が表に無い) は排他で出す (同じ行に二重に出さない)。
+- 単調増加・2 倍超ジャンプの比較は format ファミリー (ブラインド系 /
+  スタッド系) ごとに行い、Break 行は読み飛ばす。横ばいも違反として
+  警告する (設計メモ「横ばい・減少」)。
+- チップ単位の警告は、format が持つ強制ベットのうち設定されているもの
+  (0 は未設定) について 1 フィールドにつき 1 件出す。SB 単体が
+  25 で割り切れない場合はその旨をメッセージに記す。
+- `format_boundary` は info。境界の比較対象は直前の **レベル** 行
+  (Break は読み飛ばす)。実効リミットはブラインド系が BB、スタッド系が
+  Complete。
+- シミュレーションの時刻は分単位。duration は秒で持つので、累積秒を
+  `toMinutes` で最も近い分へ四捨五入する (duration が整分なら厳密に一致)。
+- R13: BB_end = T / 20 (整数除算)。ブラインド行のうち BB >= BB_end の最初の行を終了想定レベルとする (BB が 0 の行は除く)。
+- `NextBetSuggestions`: 基準行の主値より大きい梯子値 3 個と、×1.25 / ×1.5 / ×2 を「以上の最小の梯子値」へスナップした値 (重複除去・昇順)。ブラインド行なら各候補に正規比から作った SB を付ける。Break 行は直前のレベル行を基準にする。
+
+#### テスト結果
+
+- `gofmt -l .` → 出力なし、`go vet ./...` → 問題なし、
+  `go test ./...` → 全パッケージ PASS (core / auth / httpapi / store / webui)。
+- 固定した内容:
+  - 付録 A の 47 行 (Ante=BB、120 分): `ValidateStructure` の issue は 0 件。
+    `Simulate(1 entry, 60000)` で L5 (BB 600) の AvgBB がちょうど 100、
+    L6 (BB 800) で 100 を下回る (付録 A の R2)。
+  - 付録 B: B1/B2/B3 は not_clean 系 warn なし、B4 (700/1400) と
+    B6 (700/1400) は `not_clean_value`、B5 (800/1500) は
+    `not_clean_pair`。いずれも提案は 1000 / 1500。
+  - ルール単体: SB==BB / SB>BB / BB 減少 / 2 倍超ジャンプ / Ante>BB /
+    duration 0 / BB 未設定 / 形式未知 / チップ単位 (SB 130, chip 25) /
+    スタッドの順序違反 / Limit の big_bet ≠ BB×2 / 空構造 / 境界 info。
+  - 梯子単体: `IsLadderValue` / `LadderValuesAround` / `CleanPair`。
+  - シミュレーション: 総所要時間 (付録 A で 5640 分)、レイト締切
+    (マーカー行 7 → 締切 840 分)、R13 (100 entry × 10000 → T=1,000,000、
+    BB_end=50,000 → 付録 A の L24、開始 2760 分)、Break 行は AvgBB なし。
+  - マーカーの JSON 往復 (行単体と PersistedState の両方で保持)。

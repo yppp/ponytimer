@@ -1,6 +1,7 @@
 package store
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -79,7 +80,7 @@ func TestTournamentRoundTrip(t *testing.T) {
 		t.Fatalf("structure length = %d, want %d", len(loaded.Structure), len(tr.Structure))
 	}
 	for i := range tr.Structure {
-		if loaded.Structure[i] != tr.Structure[i] {
+		if !reflect.DeepEqual(loaded.Structure[i], tr.Structure[i]) {
 			t.Fatalf("structure[%d] = %+v, want %+v", i, loaded.Structure[i], tr.Structure[i])
 		}
 	}
