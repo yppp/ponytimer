@@ -27,6 +27,9 @@ func TestDisplayAssets(t *testing.T) {
 	script := readAsset(t, "static/display.js")
 	for _, want := range []string{
 		"LEVEL ",
+		"BIG BET",
+		"BRING-IN",
+		"COMPLETE",
 		"PLAYERS",
 		"ENTRIES",
 		"AVG STACK",

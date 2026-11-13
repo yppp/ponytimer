@@ -22,6 +22,8 @@ type createTournamentRequest struct {
 	AddonChips int `json:"addon_chips"`
 	// Levels is the ordered structure: playing levels and breaks.
 	Levels []core.Level `json:"levels"`
+	// GameMix is the game mix configuration of the tournament (spec §4.3).
+	GameMix core.GameMix `json:"game_mix"`
 }
 
 // createTournamentResponse is the answer of POST /api/tournaments.
@@ -66,6 +68,11 @@ func (s *Server) handleCreateTournament(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("level %d needs a positive duration_sec", i))
 			return
 		}
+		if !core.ValidFormat(lvl.Format) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf(
+				"level %d has an unknown format %q (blind-nl, blind-limit or stud-limit)", i, lvl.Format))
+			return
+		}
 	}
 
 	id, err := randomID("t_")
@@ -81,6 +88,7 @@ func (s *Server) handleCreateTournament(w http.ResponseWriter, r *http.Request) 
 
 	now := s.clock.Now()
 	t := core.NewTournament(id, req.Name, req.Levels, s.clock)
+	t.GameMix = req.GameMix
 	t.StartingStack = req.StartingStack
 	t.RebuyStack = req.RebuyStack
 	t.AddonChips = req.AddonChips

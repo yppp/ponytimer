@@ -15,6 +15,10 @@ type PersistedState struct {
 	Name string `json:"name"`
 	// Structure is the ordered list of levels and breaks.
 	Structure []Level `json:"structure"`
+	// GameMix is the game mix configuration of the tournament (spec §4.3).
+	// A state written before the game mix existed has no game mix; it is
+	// then read as the zero value (no stud, one level per game).
+	GameMix GameMix `json:"game_mix"`
 	// CurrentLevel is the 0-based index of the level in progress.
 	CurrentLevel int `json:"current_level"`
 	// State is "waiting", "running", "paused" or "finished".
@@ -43,6 +47,7 @@ func (t *Tournament) Persisted() PersistedState {
 		ID:               t.ID,
 		Name:             t.Name,
 		Structure:        append([]Level(nil), t.Structure...),
+		GameMix:          t.GameMix,
 		CurrentLevel:     t.CurrentLevel,
 		State:            t.state.String(),
 		RemainingSec:     t.RemainingSec,
@@ -73,6 +78,7 @@ func RestorePersisted(p PersistedState, clock Clock) (*Tournament, error) {
 		return nil, err
 	}
 	t := NewTournament(p.ID, p.Name, p.Structure, clock)
+	t.GameMix = p.GameMix
 	t.CurrentLevel = p.CurrentLevel
 	t.state = state
 	t.RemainingSec = p.RemainingSec

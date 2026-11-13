@@ -3,13 +3,21 @@ package core
 import "time"
 
 // LevelView is the display-facing view of one structure row.
+//
+// The forced bets are grouped in a bets object, so that the display can
+// pick the labels of the row's format (spec §7.7).
 type LevelView struct {
-	Index       int    `json:"index"`
-	Type        string `json:"type"`
-	SB          int    `json:"sb"`
-	BB          int    `json:"bb"`
-	Ante        int    `json:"ante"`
-	DurationSec int    `json:"duration_sec"`
+	Index int    `json:"index"`
+	Type  string `json:"type"`
+	// Game is the game type of the row, empty when there is none.
+	Game string `json:"game,omitempty"`
+	// Format is the effective format of the row: a level row always has
+	// one (blind-nl when nothing was set), a break row has none.
+	Format string `json:"format"`
+	// Bets are the forced bets of the row.
+	Bets Bets `json:"bets"`
+	// DurationSec is the duration of the row in seconds.
+	DurationSec int `json:"duration_sec"`
 }
 
 // Snapshot is everything a display needs to render the clock.
@@ -21,6 +29,10 @@ type Snapshot struct {
 
 	CurrentLevel *LevelView `json:"current_level"`
 	NextLevel    *LevelView `json:"next_level"`
+
+	// GameMix is the game mix configuration of the tournament (spec §4.3).
+	// The display needs it to know whether the stud levels show a BIG BET.
+	GameMix GameMix `json:"game_mix"`
 
 	// LevelEndsAtMs is the absolute end time in unix milliseconds,
 	// or null when the tournament is not running.
@@ -99,6 +111,7 @@ func (t *Tournament) SnapshotAt(now time.Time) Snapshot {
 		AddonChips:       t.AddonChips,
 		TotalChips:       t.TotalChips(),
 		AverageStack:     t.AverageStack(),
+		GameMix:          t.GameMix,
 	}
 
 	if t.CurrentLevel >= 0 && t.CurrentLevel < len(t.Structure) {
@@ -126,12 +139,17 @@ func (t *Tournament) SnapshotAt(now time.Time) Snapshot {
 }
 
 func levelView(l Level) *LevelView {
-	return &LevelView{
+	v := &LevelView{
 		Index:       l.Index,
 		Type:        l.Type,
-		SB:          l.SB,
-		BB:          l.BB,
-		Ante:        l.Ante,
+		Game:        l.Game,
+		Bets:        l.Bets,
 		DurationSec: l.DurationSec,
 	}
+	// A level row always shows its effective format; a break row has no
+	// forced bets and therefore no format.
+	if !l.IsBreak() {
+		v.Format = l.EffectiveFormat()
+	}
+	return v
 }

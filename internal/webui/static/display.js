@@ -223,7 +223,11 @@
   // When the tournament has no current level yet, nothing is shown: a
   // made-up number would be worse than no number.
   function setLevel(slot, level) {
-    var text = level ? "LEVEL " + (level.index + 1) : "";
+    var text = "";
+    if (level) {
+      text = "LEVEL " + (level.index + 1);
+      if (level.game) text += " — " + level.game;
+    }
     slot.level.textContent = text;
     // During a break the current row is the break row itself, so the
     // overlay shows the number of that row.
@@ -262,14 +266,61 @@
     return n < 10 ? "0" + n : String(n);
   }
 
+  // betsOf returns the forced bets of a level row.
+  //
+  // New snapshots carry the bets in one object; a snapshot of an older
+  // server still has them flat on the row, so those are folded in here.
+  function betsOf(level) {
+    if (level.bets) return level.bets;
+    return { sb: level.sb, bb: level.bb, ante: level.ante };
+  }
+
+  // betParts describes the forced bets of a level the way its format
+  // asks for it (spec §7.7), as an array of "LABEL value" strings.
+  //
+  // The BIG BET is derived when the row has none: the BB times two for
+  // a blind limit game, the COMPLETE times two for a stud game, and a
+  // stud game shows it only when the game mix asks for it.
+  function betParts(level, mix) {
+    var bets = betsOf(level);
+    var format = level.format || "blind-nl";
+    var parts = [];
+    if (format === "blind-limit") {
+      pushBet(parts, "SB", bets.sb);
+      pushBet(parts, "BB", bets.bb);
+      pushBet(parts, "BIG BET", bigBetValue(bets, bets.bb));
+      pushBet(parts, "ANTE", bets.ante);
+    } else if (format === "stud-limit") {
+      pushBet(parts, "BRING-IN", bets.bring_in);
+      pushBet(parts, "COMPLETE", bets.complete);
+      pushBet(parts, "ANTE", bets.ante);
+      if (mix && mix.stud_show_big_bet) {
+        pushBet(parts, "BIG BET", bigBetValue(bets, bets.complete));
+      }
+    } else {
+      pushBet(parts, "SB", bets.sb);
+      pushBet(parts, "BB", bets.bb);
+      pushBet(parts, "ANTE", bets.ante);
+    }
+    return parts;
+  }
+
+  // bigBetValue returns the BIG BET of a row: its own value, or the
+  // fallback (the BB or the COMPLETE) times two.
+  function bigBetValue(bets, fallback) {
+    if (bets.big_bet) return bets.big_bet;
+    return (fallback || 0) * 2;
+  }
+
+  // pushBet adds a forced bet to the parts, unless it is not set.
+  function pushBet(parts, label, value) {
+    if (!value) return;
+    parts.push(label + " " + fmt(value));
+  }
+
   function blindsHTML(snap) {
     var level = snap.current_level;
-    var parts = [];
-    if (level) {
-      parts.push("SB " + fmt(level.sb));
-      parts.push("BB " + fmt(level.bb));
-      if (level.ante) parts.push("ANTE " + fmt(level.ante));
-    }
+    var parts = level ? betParts(level, snap.game_mix) : [];
     var html = parts.join(" &nbsp;·&nbsp; ");
     var next = nextBlindsText(snap);
     if (next) html += '<div class="next">Next: ' + next + "</div>";
@@ -280,8 +331,8 @@
     var next = snap.next_level;
     if (!next) return "";
     if (next.type === "break") return "Break";
-    var parts = ["SB " + fmt(next.sb), "BB " + fmt(next.bb)];
-    if (next.ante) parts.push("ANTE " + fmt(next.ante));
+    var parts = betParts(next, snap.game_mix);
+    if (next.game) parts.unshift(next.game);
     return parts.join(" / ");
   }
 

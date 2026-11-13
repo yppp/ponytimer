@@ -561,3 +561,209 @@ puppeteer + Chromium をインストール**して、表示ページ（fake snap
   （横画面の退行なし）。実機（iPhone / Android）の目視確認は未実施。
 - 検証結果: `gofmt -l .` は出力なし、`go vet ./...` は問題なし、`go test ./...` は全パッケージ PASS。
   既定の Go build cache は読み取り専用だったため、`GOCACHE=/tmp/pt-go-cache` を指定して vet / test を実行した。
+
+## Issue #4 — データモデル拡張 (format / bets / ゲームミックス)
+
+v0.1 レビューの Major-2 対応。レベル行に format / bets / game を持たせ、
+仕様 D9 / D10 (§4.3 / §7.7 / §11) のミックスゲーム強制ベット表示を表現可能にする。
+
+### 設計メモ (実装前、コーディネーター作成)
+
+#### モデルの最終形 (internal/core)
+
+- `Bets` 構造体を新設する。全フィールド `omitempty`:
+  `sb`, `bb`, `big_bet`, `ante`, `bring_in`, `complete` (すべて int)。
+- format 定数: `FormatBlindNL = "blind-nl"`, `FormatBlindLimit = "blind-limit"`,
+  `FormatStudLimit = "stud-limit"`。
+- `Level` からフラットな `SB` / `BB` / `Ante` を外し、
+  `Game string (json:"game,omitempty")`、`Format string (json:"format,omitempty")`、
+  `Bets Bets (json:"bets")` を持たせる。Break 行は game / format 空、bets ゼロ。
+- `Level.EffectiveFormat()`: 空なら `blind-nl` を返す。
+- `GameMix` 構造体を新設する (§4.3 / §11):
+  `games []string`, `stud_enabled bool`, `stud_show_big_bet bool`,
+  `levels_per_game int`。`Tournament.GameMix` として保持する。
+  ローテーション自体の本式実装は後段で、ここでは設定値の保持のみ。
+  `levels_per_game` が 0 以下のときの実効値は 1。
+- スナップショット: `LevelView` は `{index, type, game, format, bets, duration_sec}`
+  とし、フラットな sb/bb/ante は廃止する。level 行の `format` は実効値
+  (空にしない) を出す。`Snapshot` に `game_mix` を追加する。
+
+#### 永続化の移行 (後方互換が必須)
+
+- `Level` にカスタム `UnmarshalJSON` を付け、旧形式
+  (行に `sb` / `bb` / `ante` がフラット、`format` 無し) と新形式の両方を受ける。
+  旧形式は `bets` へ畳み込み、`type=level` で format が空なら `blind-nl` を補う。
+  両形式が混在したら `bets` 側を優先する。
+- 書き出しは新形式のみ (カスタム Marshal は不要)。
+- `PersistedState` に `game_mix` を追加する。旧 JSON に無い場合はゼロ値
+  (= スタッド無効、levels_per_game 実効 1) として読めること。
+- 移行テスト必須:
+  1. 旧形式の永続 JSON (フラット sb/bb/ante、format 無し、game_mix 無し) を
+     `PersistedState` 経由で復元し、bets への畳み込みと format 補完を確認する。
+  2. 移行後の marshal が新形式 (bets / format を含み、行にフラット sb を含まない)
+     になることを確認する。
+  3. 新形式 (stud 行: bring_in / complete) がそのまま往復することを確認する。
+
+#### API (internal/httpapi)
+
+- 作成リクエストに `game_mix` を追加する。
+- バリデーション: 既存の type / duration チェックに加え、format が
+  空 / blind-nl / blind-limit / stud-limit のいずれかでなければ 400。
+  API が旧形式 (フラット) のレベル JSON を受けても移行経路で通ること。
+
+#### BIG BET の導出 (表示側の規則、§7.7)
+
+- blind-limit: `bets.big_bet` があればそれ、無ければ BB x 2 を表示する。
+- stud-limit: 既定では BIG BET を表示しない。`game_mix.stud_show_big_bet` が
+  true のときだけ、`bets.big_bet` があればそれ、無ければ COMPLETE x 2 を表示する。
+- 値が 0 / 欠けた項目はラベルごと省略する (空ラベルを残さない)。
+
+#### 管理画面の入力記法 (internal/webui/static/admin.js)
+
+- 旧記法は不変: `sb,bb,ante,minutes` は blind-nl、`break,minutes` は Break。
+- レベル行は空白区切りのプレフィックス `game=<名前>` / `fmt=<format>`
+  (順不同、両方任意) を付けられる。カンマ列の形は format で決まる:
+  - blind-nl: `sb,bb,ante,minutes`
+  - blind-limit: `sb,bb,big_bet,ante,minutes` (big_bet は空または `-` で 0 = 導出)
+  - stud-limit: `bring_in,complete,ante,minutes`
+  - 例: `fmt=blind-limit 100,200,400,0,20`、`game=Stud fmt=stud-limit 25,100,25,20`
+- 作成フォームにゲームミックス設定を追加する: スタッド有効チェックボックス、
+  スタッド BIG BET 表示チェックボックス、levels_per_game (数値、既定 1)、
+  games (カンマ区切りテキスト)。作成リクエストの `game_mix` として送る。
+- テキストエリア下のヘルプ文を新記法に合わせて更新する。
+- 管理画面の現在/次レベル表示 (`describe`) は snapshot の bets / format から
+  形式別のラベルで描く。game があれば名前も出す。
+
+#### 表示画面 (internal/webui/static/display.js)
+
+- PR #13 のレイアウト (LEVEL 表示、統計、縦積み帯) は壊さない。変更は
+  ブラインド表示部分と game 名の表示のみ。
+- `blindsHTML` / `nextBlindsText` を format で切り替える:
+  - blind-nl: SB / BB / ANTE
+  - blind-limit: SB / BB / BIG BET / ANTE
+  - stud-limit: BRING-IN / COMPLETE / ANTE (+ 条件付き BIG BET、上記導出規則)
+  - format が無い / 空の場合は blind-nl として扱う (旧スナップショット互換)。
+- 現在レベルの game 名があれば LEVEL 表示の近くに見えるようにする
+  (例: `LEVEL 3 — NLHE`)。Next 表示にも next の game があれば含める。
+  Break オーバーレイの Next 表示も同じ経路で切り替わること。
+
+#### スコープ外 (この Issue ではやらない)
+
+- ローテーション (levels_per_game での自動 game 切替) の本式実装。
+- 表計算エディタ本体 (#6)。
+- stud_enabled=false のときに stud 行を弾くバリデーション (エディタ側の領分)。
+
+### 実装メモ (Step A: core モデル + 移行 + テスト)
+
+- 変更ファイル:
+  - `internal/core/level.go`: `Bets` 構造体 (sb / bb / big_bet / ante / bring_in / complete、
+    すべて int + omitempty)、format 定数 3 種、`Level` を
+    `{index, type, game, format, bets, duration_sec}` へ変更。
+    `Level.EffectiveFormat()` (空 → blind-nl) と `core.ValidFormat()` を追加。
+    `Level.UnmarshalJSON` を実装: 旧形式 (フラット sb/bb/ante) を bets へ畳み込み、
+    `type=level` で format が空なら blind-nl を補う。bets がある行は bets 優先。
+    書き出しは新形式のみ (カスタム Marshal は無し)。
+  - `internal/core/gamemix.go` (新規): `GameMix` 構造体
+    (games / stud_enabled / stud_show_big_bet / levels_per_game) と
+    `EffectiveLevelsPerGame()` (0 以下 → 1)。
+  - `internal/core/tournament.go`: `Tournament.GameMix` を追加。
+  - `internal/core/persist.go`: `PersistedState.GameMix` を追加。旧 JSON に
+    game_mix が無い場合はゼロ値として読める (スタッド無効 / 実効 1 レベル)。
+  - `internal/core/snapshot.go`: `LevelView` を `{index, type, game, format, bets,
+    duration_sec}` へ変更 (フラット sb/bb/ante は廃止)。level 行の format は
+    実効値、break 行は format 空。`Snapshot.GameMix` を追加。
+  - `internal/core/level_test.go` (新規): 移行テスト 1〜3 (旧永続 JSON の復元、
+    移行後の新形式書き出し、新形式の stud 行の往復) ＋ bets 優先・実効 format・
+    ValidFormat・snapshot の game_mix / format 確認。
+  - `internal/core/tournament_test.go`, `internal/store/store_test.go`:
+    旧フラット字段の前提を新モデルへ更新 (検証内容は変えない)。
+- 決めたこと:
+  - `LevelView.Format` は level 行では必ず実効値 (空にしない)、break 行は空
+    (break には強制ベットも形式もない)。
+  - `Level.Format` はメモリ上でも空のままでよい (実効値は EffectiveFormat で
+    取る)。JSON 往復後だけ migration が blind-nl を埋めるため、store の往復
+    テストは構造に format を明示した。
+  - `Bets` の json タグは `bets` (omitempty なし)。break 行は `{"bets":{}}`。
+  - `GameMix` の `games` のみ omitempty。他は常に JSON に出る。
+- テスト結果: `gofmt -l .` は出力なし、`go vet ./...` は問題なし、
+  `go test ./...` は全パッケージ PASS。既定の Go build cache が読み取り専用の
+  ため `GOCACHE=/tmp/pt-go-cache` を指定して実行した。
+
+### 実装メモ (Step B: store / API / スナップショット)
+
+- 変更ファイル:
+  - `internal/httpapi/handlers.go`: 作成リクエストに `game_mix` を追加し
+    `Tournament.GameMix` に反映。バリデーションに format の検査を追加
+    (`core.ValidFormat`: 空 / blind-nl / blind-limit / stud-limit 以外で 400)。
+  - `internal/httpapi/create_test.go` (新規): 旧形式 (フラット sb/bb/ante、
+    format 無し) のレベル JSON が作成 API を通ることを確認 (bets への畳み込みと
+    format=blind-nl の補完を snapshot で検証)。game_mix + 3 形式の作成テスト、
+    不正な format の 400 テスト。
+  - `internal/store/store_test.go`: 往復テストに game_mix と stud 行
+    (bring_in / complete / ante) を追加。
+- 決めたこと:
+  - 旧形式のレベル JSON は API のデコード時に core の migration を通るため、
+    API 側に特別な後処理は無い (core 側の責務)。
+  - format の不正は「level %d has an unknown format ...」という行番号付き
+    エラーで 400。
+- テスト結果: `gofmt -l .` は出力なし、`go vet ./...` は問題なし、
+  `go test ./...` は全パッケージ PASS (`GOCACHE=/tmp/pt-go-cache`)。
+
+### 実装メモ (Step C: 管理画面の入力拡張)
+
+※ 本ステップのコードは前任コーディネーターのセッションで書かれ、セッション中断により
+未コミットのまま作業ツリーに残っていたものを、継続コーディネーターが精査・検証して
+コミットした。内容は設計メモどおりで、修正なしで採用した。
+
+- 変更ファイル:
+  - `internal/webui/static/admin.js`: `parseLevels` を `parseLevel` に分割し、
+    行プレフィックス `game=<名前>` / `fmt=<format>` (順不同・任意) に対応。
+    カンマ列は format で切替 (blind-nl: sb,bb,ante,minutes /
+    blind-limit: sb,bb,big_bet,ante,minutes (big_bet の空・`-` は 0 = 導出) /
+    stud-limit: bring_in,complete,ante,minutes)。旧記法はそのまま blind-nl に通る。
+    出力は新形式 `{type, format, bets, game?, duration_sec}` (break は bets 無し)。
+    `gameMix()` を追加し、作成リクエストに `game_mix` を含める。
+    `describe` / `describeLevel` を snapshot の bets / format ベースに書き換え、
+    BIG BET の導出 (blind-limit は BB×2、stud は `stud_show_big_bet` のときだけ
+    COMPLETE×2) と game 名の表示に対応。
+  - `internal/webui/templates/admin.html`: 新記法のヘルプ文とゲームミックス設定欄
+    (games テキスト、levels_per_game 数値、stud_enabled / stud_show_big_bet
+    チェックボックス) を追加。
+- 検証 (継続コーディネーター実施):
+  - `node --check` OK。parseLevels を抽出して実行するハーネスで 8 ケース確認:
+    旧記法 (フラット + break)、blind-limit の big_bet 導出/明示、stud + game 前置、
+    前置の順序入替、不正な format / 列数 / 前置のエラー。
+  - `gofmt -l .` 出力なし、`go vet ./...` 問題なし、`go test ./...` 全パッケージ PASS。
+
+### 実装メモ (Step D: 表示画面の format 切替)
+
+※ 書き手の経緯: FCC (MiniMax M3.1 Flash) は本ステップで 3 回失敗した
+(1 回目: NIM が HTTP 503 "content safety screening is temporarily unavailable"
+を返した後セッション停止、2 回目: 初回応答が 8 分以上来ずファイル変更ゼロ、
+3 回目: 起動直後に同じ 503 で即時終了)。フォールバックの Codex もこの環境では
+`codex-code-mode-host` バイナリ欠落のため実行自体ができなかった (v0.1 レビュー時と
+同じ既知のブロッカー)。両経路が塞がれているため、本ステップに限り継続
+コーディネーターが設計メモどおりに実装した。
+
+- 変更ファイル:
+  - `internal/webui/static/display.js`:
+    - `betsOf` / `betParts` / `bigBetValue` / `pushBet` を追加し、`blindsHTML` と
+      `nextBlindsText` を snapshot の bets + format で組み立てるよう変更。
+      blind-nl: SB/BB/ANTE、blind-limit: SB/BB/BIG BET/ANTE (BIG BET は
+      bets.big_bet、無ければ BB×2)、stud-limit: BRING-IN/COMPLETE/ANTE
+      (BIG BET は game_mix.stud_show_big_bet のときだけ、bets.big_bet、
+      無ければ COMPLETE×2)。0 / 欠けた項目はラベルごと省略。管理画面
+      admin.js の describeLevel と同じ規則。
+    - 後方互換: format が空なら blind-nl として扱い、`bets` が無い旧
+      スナップショットではフラットな sb/bb/ante にフォールバックする。
+    - `setLevel` は game があれば「LEVEL 3 — NLHE」形式にし、`nextBlindsText`
+      も next の game 名を含める。Break overlay の Next も同じ経路。
+    - CSS は変更なし (PR #13 のレイアウトは不変)。
+  - `internal/webui/webui_test.go`: `TestDisplayAssets` の display.js 含有確認に
+    "BIG BET" / "BRING-IN" / "COMPLETE" を追加。
+- 検証 (コーディネーター実施):
+  - `node --check` OK。関数を抽出するハーネスで 10 ケース確認: blind-nl、
+    blind-limit の BIG BET 導出/明示、stud の BIG BET 入/切、旧形式
+    スナップショット、next の game 名、next が break、現在ブラインドの
+    HTML 結合、桁区切り。
+  - `gofmt -l .` 出力なし、`go vet ./...` 問題なし、`go test ./...` 全パッケージ PASS。

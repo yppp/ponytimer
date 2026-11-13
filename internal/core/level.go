@@ -1,10 +1,37 @@
 package core
 
+import "encoding/json"
+
 // Level types as defined by the structure editor (spec §8.1).
 const (
 	LevelTypeLevel = "level"
 	LevelTypeBreak = "break"
 )
+
+// Level formats (spec §7.7 / §11): the format decides which forced bets a
+// row has and how they are labelled on the display.
+const (
+	// FormatBlindNL is a no-limit blind game: SB / BB / ANTE.
+	FormatBlindNL = "blind-nl"
+	// FormatBlindLimit is a limit blind game: SB / BB / BIG BET / ANTE.
+	FormatBlindLimit = "blind-limit"
+	// FormatStudLimit is a limit stud game: BRING-IN / COMPLETE / ANTE.
+	FormatStudLimit = "stud-limit"
+)
+
+// Bets are the forced bets of a level row (chips).
+//
+// Only the fields of the row's format are used; the other ones stay zero
+// and are left out of the JSON. A zero value means "not set": the display
+// derives the BIG BET from the BB (or the COMPLETE) in that case.
+type Bets struct {
+	SB       int `json:"sb,omitempty"`
+	BB       int `json:"bb,omitempty"`
+	BigBet   int `json:"big_bet,omitempty"`
+	Ante     int `json:"ante,omitempty"`
+	BringIn  int `json:"bring_in,omitempty"`
+	Complete int `json:"complete,omitempty"`
+}
 
 // Level is one row of a tournament structure: either a playing level or a break.
 type Level struct {
@@ -12,16 +39,81 @@ type Level struct {
 	Index int `json:"index"`
 	// Type is either LevelTypeLevel or LevelTypeBreak.
 	Type string `json:"type"`
-	// SB, BB and Ante are the forced bets of the row (chips). Break rows leave them zero.
-	SB   int `json:"sb"`
-	BB   int `json:"bb"`
-	Ante int `json:"ante"`
+	// Game is the game type of the row (NLHE, PLO, ...). It is empty for a
+	// break row and for a tournament without a game mix.
+	Game string `json:"game,omitempty"`
+	// Format is the forced-bet format of the row (spec §7.7). An empty
+	// format means blind-nl; see EffectiveFormat.
+	Format string `json:"format,omitempty"`
+	// Bets are the forced bets of the row. A break row has none.
+	Bets Bets `json:"bets"`
 	// DurationSec is the row duration in seconds.
 	DurationSec int `json:"duration_sec"`
 }
 
 // IsBreak reports whether the row is a break row.
 func (l Level) IsBreak() bool { return l.Type == LevelTypeBreak }
+
+// EffectiveFormat returns the format of the row.
+//
+// An empty format is the legacy blind-nl, so that a row written by an
+// older version keeps its meaning (spec §7.7).
+func (l Level) EffectiveFormat() string {
+	if l.Format == "" {
+		return FormatBlindNL
+	}
+	return l.Format
+}
+
+// ValidFormat reports whether name is a known format.
+//
+// The empty format is accepted as well: it is the legacy blind-nl and is
+// filled in by the migration when the row is read.
+func ValidFormat(name string) bool {
+	switch name {
+	case "", FormatBlindNL, FormatBlindLimit, FormatStudLimit:
+		return true
+	}
+	return false
+}
+
+// UnmarshalJSON reads a level row in the new format (a bets object) as well
+// as in the legacy format (flat sb / bb / ante), so that a structure saved
+// by an older version can still be restored (spec §12).
+//
+// A legacy row is folded into the bets; when a row carries both, the bets
+// win. A level row without a format gets the default one (blind-nl).
+// Rows are written back in the new format only.
+func (l *Level) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Index       int    `json:"index"`
+		Type        string `json:"type"`
+		Game        string `json:"game"`
+		Format      string `json:"format"`
+		Bets        *Bets  `json:"bets"`
+		SB          int    `json:"sb"`
+		BB          int    `json:"bb"`
+		Ante        int    `json:"ante"`
+		DurationSec int    `json:"duration_sec"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	l.Index = raw.Index
+	l.Type = raw.Type
+	l.Game = raw.Game
+	l.Format = raw.Format
+	l.DurationSec = raw.DurationSec
+	if raw.Bets != nil {
+		l.Bets = *raw.Bets
+	} else {
+		l.Bets = Bets{SB: raw.SB, BB: raw.BB, Ante: raw.Ante}
+	}
+	if l.Type == LevelTypeLevel && l.Format == "" {
+		l.Format = FormatBlindNL
+	}
+	return nil
+}
 
 // State is the tournament timer state (spec §5.1).
 type State int

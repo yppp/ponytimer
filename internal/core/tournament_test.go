@@ -10,9 +10,9 @@ var base = time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 // structure: level 0 (5min), break 1 (10min), level 2 (5min)
 func testStructure() []Level {
 	return []Level{
-		{Type: LevelTypeLevel, SB: 100, BB: 200, DurationSec: 300},
+		{Type: LevelTypeLevel, Bets: Bets{SB: 100, BB: 200}, DurationSec: 300},
 		{Type: LevelTypeBreak, DurationSec: 600},
-		{Type: LevelTypeLevel, SB: 200, BB: 400, DurationSec: 300},
+		{Type: LevelTypeLevel, Bets: Bets{SB: 200, BB: 400}, DurationSec: 300},
 	}
 }
 
@@ -288,8 +288,11 @@ func TestSnapshot(t *testing.T) {
 	if s.State != "running" {
 		t.Fatalf("state = %q, want running", s.State)
 	}
-	if s.CurrentLevel == nil || s.CurrentLevel.BB != 200 {
+	if s.CurrentLevel == nil || s.CurrentLevel.Bets.BB != 200 {
 		t.Fatalf("current level = %+v", s.CurrentLevel)
+	}
+	if s.CurrentLevel.Format != FormatBlindNL {
+		t.Fatalf("current level format = %q, want %q", s.CurrentLevel.Format, FormatBlindNL)
 	}
 	if s.NextLevel == nil || s.NextLevel.Type != LevelTypeBreak {
 		t.Fatalf("next level = %+v", s.NextLevel)
