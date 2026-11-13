@@ -1137,3 +1137,18 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
 - Break 挿入は既存 Break をカウントせずレベル行の個数で間隔を判定する。ネストはテンプレートまたは別トーナメントの構造を取得し、指定区間を挿入する。
 - 検証: Node 構文確認と指定ハーネス、gofmt、go vet、Go テストを実施（結果は Step D 完了報告に記載）。
 - 書き手の経緯 (コーディネーター注記): FCC (MiniMax) は約 24 分で SIGTERM され、部分成果（structureio.js と editor.js / editor.html の途中まで）を残して終了した。エディタ JS 作業での FCC の失敗が Step C から通算 4 回目となったため、AGENTS.md のフォールバック規定により残りを Codex が完了させた。コーディネーターも独立ハーネスで付録 A 再現（47 行一致）と CSV 往復を確認済み。
+
+### 実装メモ (Step E: シミュレーション表示 + 圧迫度グラフ)
+
+- 変更ファイル: `internal/webui/templates/editor.html`（開始時刻、集計値、SVG パネル）、`internal/webui/static/editor.js`（analyze への時刻送信と応答描画）、`internal/webui/static/style.css`（集計カードと SVG グラフ）、本メモ。
+- 開始時刻が空なら `start_time_ms: 0` とし、結果時刻は開始からの累計分で表示する。入力があればその時刻を送信し、予定時刻を HH:MM で表示する。グラフは analyze 応答内の `simulation.rows` のみから作り、平均 BB があるレベル行を折れ線・点で表示し、LR と R13 の位置をマークする。点の title にはレベル、開始時刻、BB を含める。
+- 総チップ注記は想定エントリー数 × 開始スタックであり、リバイ等を含まない旨を表示する。
+- 検証: `node --check` は `editor.js` / `structureio.js` / `admin.js` すべて成功。`gofmt -l .` は出力なし、`go vet ./...` は問題なし、`GOCACHE=/tmp/pt-go-cache go test ./...` は全パッケージ PASS。
+
+### 実装メモ (Step F: 開催中ロック)
+
+- 変更ファイル: `internal/webui/static/editor.js`（ロック範囲判定、入力・操作制御、suffix 一括操作）、`internal/webui/static/style.css`（灰色行と境界表示）、`internal/webui/templates/editor.html`（終了時刻とシミュレーションパネル）、本メモ。
+- 構造の取得応答を `load()` が `base` に保持し、その `state` と `current_level`（structure endpoint の 0 始まり整数）から prefix 長を算出する。トーナメントの waiting は 0 行、running / paused / break は現在行まで、finished は全行をロックして保存を無効にする。ローカル下書き復元後もサーバー取得時の state/current_level を基準に UI 制御するため、通常の行操作、DnD、一括操作、Replace import、Nest 挿入、Break 操作、ローテーションは prefix を変更しない位置・対象に制限する。
+- サーバーからの再取得やブラウザー操作による受け入れ確認は未実施。UI の制御はクライアント側での通常操作を対象とし、復元下書きが prefix を変えている場合の保存拒否は既存のサーバー 409 経路に委ねる。
+- 書き手の経緯 (コーディネーター注記): Step E / F はエディタ JS の作業であり、FCC (MiniMax) は Step C / D で通算 4 回失敗していたため、AGENTS.md のフォールバック規定に基づき最初から Codex に委譲した (約 5 分で完走)。
+- 検証: `node --check` は `editor.js` / `structureio.js` / `admin.js` すべて成功。`gofmt -l .` は出力なし、`go vet ./...` は問題なし、`GOCACHE=/tmp/pt-go-cache go test ./...` は全パッケージ PASS。実ブラウザー確認はコーディネーター側で未実施。
