@@ -650,3 +650,17 @@ tr.issue-focus { outline: 2px solid var(--accent); }
 .issues li.issue-error { color: #ffb4b6; }
 .issues li.issue-warn { color: #ffd479; }
 .issues li.issue-info { color: #9ecbff; }
+.modal[hidden] { display: none; }
+.modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: #000a; }
+.modal-box { width: min(760px, 100%); max-height: 90vh; overflow: auto; padding: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 18px 60px #0009; }
+.modal-head, .modal-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.modal-head { margin-bottom: 14px; }
+.modal-head h2 { margin: 0; }
+.modal-body { display: grid; gap: 12px; }
+.modal-body textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.modal-field { display: grid; gap: 6px; margin: 0; }
+.modal-row { padding: 9px 0; border-bottom: 1px solid var(--border); }
+.modal-row button { margin: 0; }
+.suggestion-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.suggestion-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.suggestion-chip { margin: 0; padding: 6px 10px; border-radius: 999px; background: #244d37; }

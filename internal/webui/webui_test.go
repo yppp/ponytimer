@@ -85,6 +85,15 @@ func TestEditorAssets(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "ponytimer-editor-draft:") {
 		t.Fatal("editor.js response does not contain editor script")
 	}
+
+	ioRec := httptest.NewRecorder()
+	StaticHandler().ServeHTTP(ioRec, httptest.NewRequest("GET", "/structureio.js", nil))
+	if ioRec.Code != 200 {
+		t.Fatalf("structureio.js status = %d, want 200", ioRec.Code)
+	}
+	if !strings.Contains(ioRec.Body.String(), "parseTableText") {
+		t.Fatal("structureio.js response does not contain import helpers")
+	}
 }
 
 func renderEditorPage(t *testing.T) string {

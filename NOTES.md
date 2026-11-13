@@ -1128,3 +1128,12 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
 - コーディネーターが editor.js に小修正を加えた: ドラッグはハンドルからの
   開始に限定 (入力欄からの誤ドラッグ防止)、保存応答の structure_version を
   snapshot から読む、新規構造でも下書き復元を行う。
+
+### 実装メモ (Step D: 取込/書出、テンプレート、ネスト、候補提示、Break)
+
+- 前任 FCC セッションで作成された `structureio.js` と editor.js / editor.html の部分成果を精査して引き継ぎ、未接続だった UI 操作と静的配信確認、スタイルを補完した。
+- 変更ファイル: `internal/webui/static/structureio.js`（テキスト/CSV の純粋変換関数）、`internal/webui/static/editor.js`（取込・書出、テンプレート CRUD 操作、ネスト、候補、Break 一括挿入）、`internal/webui/templates/editor.html`（各操作ボタンと共通モーダル）、`internal/webui/static/style.css`（モーダル・候補チップ等）、`internal/webui/webui_test.go`（structureio.js 配信確認）、本メモ。
+- テキスト取込は 2〜4 列の SB/BB/Ante/分と break 行を受け付ける。既定時間は 20 分、2 列形式の Ante は指定時に BB と同額にする。CSV は指定ヘッダーとマーカーのセミコロン区切りで往復する。新規モードの保存操作はテンプレート作成として扱い、保存後にそのテンプレートを編集対象にする。
+- Break 挿入は既存 Break をカウントせずレベル行の個数で間隔を判定する。ネストはテンプレートまたは別トーナメントの構造を取得し、指定区間を挿入する。
+- 検証: Node 構文確認と指定ハーネス、gofmt、go vet、Go テストを実施（結果は Step D 完了報告に記載）。
+- 書き手の経緯 (コーディネーター注記): FCC (MiniMax) は約 24 分で SIGTERM され、部分成果（structureio.js と editor.js / editor.html の途中まで）を残して終了した。エディタ JS 作業での FCC の失敗が Step C から通算 4 回目となったため、AGENTS.md のフォールバック規定により残りを Codex が完了させた。コーディネーターも独立ハーネスで付録 A 再現（47 行一致）と CSV 往復を確認済み。
