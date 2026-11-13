@@ -767,3 +767,162 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
     スナップショット、next の game 名、next が break、現在ブラインドの
     HTML 結合、桁区切り。
   - `gofmt -l .` 出力なし、`go vet ./...` 問題なし、`go test ./...` 全パッケージ PASS。
+
+## Issue #6 — ストラクチャー・エディタ
+
+### 設計メモ (実装前、コーディネーター作成)
+
+#### 構造 (Structure) の扱い: 独立エンティティ化しない
+
+- 現行どおり Tournament がレベル列を保持し、エディタは「トーナメントの
+  レベル列」を編集対象とする。仕様 §11 の Structure は「行の配列 + 版」と
+  いう形の定義であり、`Tournament.Structure` + `StructureVersion` が
+  実質的にそれを満たす。独立 ID 付きエンティティにすると永続化
+  (state_json)・作成 API・スナップショットの全面移行が要る割に、
+  v1 の利用者価値が無い。
+- テンプレートだけは独立エンティティにする。別トーナメントへ適用する
+  ものなので Tournament の外に存在する必要がある。新規テーブル
+  `templates (id, name, levels_json, created_at, updated_at)` に
+  名前 + レベル列で持つ (§11 の Template = Structure と同形)。
+- ネストは「テンプレート (または他トーナメントの構造) の区間を
+  編集バッファへ差し込む」操作としてエディタ側で合成する。
+  サーバー側に合成 API は作らない。
+
+#### 検証・シミュレーションの置き場所: Go の core に一本化
+
+- `internal/core` に新設する:
+  - `ladder.go`: マスター梯子と「綺麗な組」の判定 (下記)
+  - `validate.go`: `ValidateStructure(levels, opts) []Issue`
+    (Issue は severity: error / warn / info、行番号、rule、message)
+  - `simulate.go`: `Simulate(levels, entries, startingStack, start)`
+    → 総所要時間、終了予定時刻、レイト締切、行ごとの開始オフセットと
+    アベレージ BB、R13 終了想定レベルと到達時刻、次レベル候補
+- HTTP は `POST /api/structures/analyze` (要認証) が
+  {levels, entries, starting_stack, start_time_ms, chip_unit,
+  suggest_after_index} を受けて {issues, simulation, suggestions} を返す。
+  エディタは編集のたびにデバウンスして呼び、検証とシミュレーションの
+  正を Go 側に一本化する (#7 の生成と共有するため)。JS 側に検証
+  ルールの複製は作らない。
+- 累計時刻の列表示だけは行 duration の単純合計なので JS で計算してよい
+  が、シミュレーションパネルとグラフは analyze の結果を使う。
+
+#### 「綺麗な組」の形式化 (付録 B7 対応)
+
+- 梯子値: 仮数部 {1, 1.2, 1.5, 1.6, 2, 2.5, 3, 4, 5, 6, 8} × 10^n。
+  1.6 は旧主流形 (B2) のため梯子に含めるが legacy 扱いとする。
+- 正規ペア表 (BB 仮数部 → 許容 SB 仮数部) を付録 A の実績 + B2 から作る:
+  1→{0.5}, 1.2→{0.6}, 1.5→{1.0}, 1.6→{0.8}, 2→{1.0}, 2.5→{1.0, 1.25},
+  3→{1.5, 2}, 4→{2}, 5→{2.5, 3}, 6→{3}, 8→{4}
+- 判定: BB が梯子値でない → warn `not_clean_value`。組が正規ペア表に
+  無い → warn `not_clean_pair`。警告には最も近い正規の組を提案として
+  含める (例: 700/1400 → 1000/1500 への変更提案、§8.4)。
+- これで B1 / B2 / B3 は無警告、B4 (700/1400) / B5 (800/1500) /
+  B6 (700/1400 を含む) に警告が出る。B6 の「刻みすぎ」自体は
+  700/1400 の警告でカバーされるものとし、上昇率が小さい区間への
+  追加警告は本 Issue では必須としない。
+
+#### 検証ルール一覧 (§8.4 + §14)
+
+- error (保存不可): duration ≤ 0、レベル列が空、未知の format
+- warn: BB の単調増加違反 (横ばい・減少)、SB > BB、SB == BB
+  (§8.4: 意図的な SB=BB は警告のみ)、BB ジャンプ 2 倍超、
+  最小チップ単位で割り切れない値 (chip_unit、既定 25)、
+  綺麗でない値・組 (上記)、Ante > BB
+- warn (§14): スタッド行の Ante < Bring-in < Complete 違反、
+  Complete の単調増加違反、Limit 行で big_bet 明示値 ≠ BB×2
+- info (§14): 形式が切り替わる境界での実効リミット跳ね上がり率
+  (ブラインド系は BB、スタッド系は Complete を実効値とする)
+
+#### シミュレーション (§8.4)
+
+- 総チップ T = 想定エントリー数 × 開始スタック (リバイ等を含めない
+  想定値であることを UI に明記する)。
+- 行ごと: 開始オフセット (累計分)、アベレージスタック (= T / エントリー数)
+  をその行の BB で割った BB 換算値。スタッド行は Complete を分母にする。
+  Break 行は換算なし。
+- 総所要時間 = 全行の duration 合計。終了予定時刻 = 開始時刻 + 総所要時間。
+- レイト締切: marker `late_reg_end` の行が「そのレベルまで登録可」。
+  締切レベル (その行の番号) と締切時刻 (その行の終了時刻) を返す。
+- R13 終了想定: BB_end = T / 20。ブラインド行のうち BB が BB_end 以上に
+  なる最初の行を終了想定レベルとし、その開始時刻を到達時刻とする。
+  (グラフ上のマーカーは「到達可能性」の表示なので、最も近い値への
+  スナップでなく最初に到達する行を採る。)
+
+#### マーカー
+
+- `core.Level` に `Markers []string` (json `markers,omitempty`) を追加する。
+  永続化は Level の JSON にそのまま乗る。既知の値: `late_reg_end`,
+  `rebuy_end`, `color_up`, `addon_break`。未知の値は保持し、検証では
+  対象にしない。LevelView (表示用) には今回は出さない。
+
+#### 構造の取得・保存 API
+
+- `GET /api/tournaments/{id}/structure` (要認証): エディタ初期ロード用に
+  {name, state, current_level, structure_version, game_mix,
+  starting_stack, levels} を返す。snapshot は表示用で構造全体を
+  含まないため新設する。
+- 保存は commands 経路に一本化し、新コマンド `update_structure`
+  {levels} を追加する。core の `Tournament.ReplaceStructure` が:
+  - waiting: 全行差し替え可
+  - running / paused / break: 先頭 CurrentLevel+1 行 (現レベル以前) が
+    現行と完全一致すること (ロック)。一致しなければエラー。
+    LevelEndsAt / RemainingSec には触らない (§8.5: 現レベルの時間は
+    変更不可、時間変更は §6.1 の時間±調整)
+  - finished: エラー
+  - 成功時: StructureVersion を +1 し、既存の emit 経路で
+    `structure_updated` イベントを配信する
+- テンプレート API (要認証): GET /api/templates、
+  POST /api/templates、GET /api/templates/{id}、
+  PUT /api/templates/{id}、DELETE /api/templates/{id}。
+
+#### エディタ UI
+
+- ルート `GET /admin/editor` (要認証)。クエリ `?tournament=<id>` /
+  `?template=<id>`。無指定は空の構造から始める。
+  admin.html のトーナメント一覧に「構造を編集」リンクを追加する。
+  既存のテキストエリア作成経路は変更しない。
+- editor.js の行モデルは JS 配列。セルは input ベースで編集し、
+  DOM 順でタブ移動する。行操作: 挿入 / 削除 / 複製 / ドラッグ
+  並べ替え (HTML5 DnD) / 複数行選択の一括変更 (時間一括設定、削除)。
+  Undo/Redo はメモリ上の履歴スタック。下書き自動保存は localStorage
+  (キー = 対象種別 + id)、ロード時に下書きがあればバナーで知らせて
+  復元し、保存成功で消去する。
+- 列は format で可変: blind-nl は SB/BB/Ante、blind-limit は
+  SB/BB/BIG BET/Ante、stud-limit は Ante/Bring-in/Complete。
+  スタッド無効 (game_mix.stud_enabled = false) のトーナメントでは
+  スタッドの format を候補に出さない。ゲーム列は game_mix の
+  ローテーション (games の並び × levels_per_game) を初期割当し、
+  行ごとに手動変更も可能とする。
+- 取込/書出: ペースト取込モーダル (TSV / CSV / 空白区切りを受理。
+  列は SB,BB[,Ante[,分]]、break 行は `break,分`)、CSV 取込 (ファイル)、
+  CSV 書出 (ダウンロード + クリップボード)。付録 A の再現経路は
+  「SB/BB の 2 列 + 取込ダイアログで一律 duration (120 分) と
+  Ante = BB 同額を指定」で 47 行を再現できることとし、ハーネスで実証する。
+- Break 一括挿入: 「N レベルごとに M 分」をダイアログで挿入、
+  全 Break 除去ボタンも置く。カラーアップ候補位置での Break 提案は
+  本 Issue では行わない (マーカー color_up は手動で付けられる)。
+- 開催中ロック: structure 取得時の state が waiting 以外なら
+  current_level 以下の行をグレー表示 + 入力 disabled にし、prefix を
+  壊す行操作 (ロック行の削除・並べ替え・一括変更) も UI で禁止する。
+  サーバー側でも ReplaceStructure が検証する二重化とする。
+  受け入れ条件「開催中は現レベル以前の行がロックされる」は
+  core テスト + httpapi テスト + UI のロック表示で担保する。
+
+#### ChangeLog / 差分表示は follow-up に切る
+
+- §8.5 の中核 (ロック、次レベル反映、version +1、structure_updated
+  配信) は本 Issue で満たす。events テーブルには structure_updated が
+  structure_version とスナップショット payload 付きで残る。
+- §11 ChangeLog エンティティ (誰が・いつ・何を) と差分表示 UI は
+  本 Issue には含めず、follow-up Issue 化を PR 本文で提案する。
+
+#### ステップ分割
+
+- (a) core: ladder / validate / simulate + Markers + テスト
+- (b) API: analyze、structure 取得、update_structure コマンド、
+  テンプレート CRUD + store
+- (c) エディタ UI 基本: グリッド編集、行操作、Undo/Redo、自動保存、
+  analyze 連携 (検証表示)
+- (d) 取込/書出、テンプレート、ネスト、候補提示、Break 一括挿入
+- (e) シミュレーション表示 + 圧迫度グラフ
+- (f) 開催中ロック (UI 表示と操作禁止; サーバー検証は (b))
