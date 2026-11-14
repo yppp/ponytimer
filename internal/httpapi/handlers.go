@@ -44,6 +44,30 @@ type snapshotResponse struct {
 	ServerTime int64 `json:"server_time"`
 }
 
+// structureResponse is the answer of GET /api/tournaments/{id}/structure.
+//
+// It holds the whole structure of the tournament: the snapshot is the
+// display view and does not carry the levels.
+type structureResponse struct {
+	// ID is the identifier of the tournament.
+	ID string `json:"id"`
+	// Name is the name of the tournament.
+	Name string `json:"name"`
+	// State is the derived state of the tournament: "waiting", "running",
+	// "paused", "break" or "finished".
+	State string `json:"state"`
+	// CurrentLevel is the 0-based index of the level in progress.
+	CurrentLevel int `json:"current_level"`
+	// StructureVersion is bumped on every structure change (spec §8.5).
+	StructureVersion int `json:"structure_version"`
+	// GameMix is the game mix configuration of the tournament (spec §4.3).
+	GameMix core.GameMix `json:"game_mix"`
+	// StartingStack is the stack handed out per entry (chips).
+	StartingStack int `json:"starting_stack"`
+	// Levels is the ordered structure of the tournament.
+	Levels []core.Level `json:"levels"`
+}
+
 // handleCreateTournament creates a waiting tournament.
 func (s *Server) handleCreateTournament(w http.ResponseWriter, r *http.Request) {
 	var req createTournamentRequest
@@ -138,6 +162,32 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.snapshotResponse(rt))
+}
+
+// handleGetStructure returns the structure of a tournament for the editor.
+//
+// The whole structure is read under the runtime lock, so the editor never
+// sees a half replaced structure.
+func (s *Server) handleGetStructure(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	rt, ok := s.runtimeFor(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "tournament not found")
+		return
+	}
+	rt.mu.Lock()
+	resp := structureResponse{
+		ID:               rt.t.ID,
+		Name:             rt.t.Name,
+		State:            rt.t.State().String(),
+		CurrentLevel:     rt.t.CurrentLevel,
+		StructureVersion: rt.t.StructureVersion,
+		GameMix:          rt.t.GameMix,
+		StartingStack:    rt.t.StartingStack,
+		Levels:           append([]core.Level(nil), rt.t.Structure...),
+	}
+	rt.mu.Unlock()
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleDisplaySnapshot resolves a display token and returns the snapshot.

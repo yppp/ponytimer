@@ -329,3 +329,106 @@ func TestSnapshotAverageStackZeroWhenNoPlayersLeft(t *testing.T) {
 		t.Fatalf("average stack = %v, want 0", s.AverageStack)
 	}
 }
+
+// TestReplaceStructureWhileWaiting checks that a waiting tournament may get
+// any structure and that the version is bumped.
+func TestReplaceStructureWhileWaiting(t *testing.T) {
+	tr, _ := newTestTournament(t)
+
+	newLevels := []Level{
+		{Type: LevelTypeLevel, Bets: Bets{SB: 100, BB: 200}, DurationSec: 600},
+		{Type: LevelTypeBreak, DurationSec: 900},
+	}
+	if err := tr.ReplaceStructure(newLevels); err != nil {
+		t.Fatalf("ReplaceStructure: %v", err)
+	}
+	if len(tr.Structure) != len(newLevels) {
+		t.Fatalf("structure length = %d, want %d", len(tr.Structure), len(newLevels))
+	}
+	for i, lv := range tr.Structure {
+		if !lv.Equal(newLevels[i]) {
+			t.Fatalf("structure[%d] = %+v, want %+v", i, lv, newLevels[i])
+		}
+		if lv.Index != i {
+			t.Fatalf("structure[%d] index = %d, want %d", i, lv.Index, i)
+		}
+	}
+	if tr.StructureVersion != 1 {
+		t.Fatalf("structure version = %d, want 1", tr.StructureVersion)
+	}
+}
+
+// TestReplaceStructureWhileRunningLocksThePrefix checks that the rows that
+// are already played cannot be changed, while the rows after the current
+// level can (spec §8.5).
+func TestReplaceStructureWhileRunningLocksThePrefix(t *testing.T) {
+	tr, clock := newTestTournament(t)
+	mustStart(t, tr, clock)
+	// The break row is in progress: the rows 0 and 1 are locked.
+	if err := tr.NextLevel(clock.Now()); err != nil {
+		t.Fatalf("NextLevel: %v", err)
+	}
+	endsAt := *tr.LevelEndsAt
+
+	// Changing a locked row is refused.
+	locked := []Level{
+		{Type: LevelTypeLevel, Bets: Bets{SB: 150, BB: 200}, DurationSec: 300},
+		{Type: LevelTypeBreak, DurationSec: 600},
+		{Type: LevelTypeLevel, Bets: Bets{SB: 200, BB: 400}, DurationSec: 300},
+	}
+	if err := tr.ReplaceStructure(locked); err != ErrStructureLocked {
+		t.Fatalf("ReplaceStructure of a locked row = %v, want %v", err, ErrStructureLocked)
+	}
+	if tr.StructureVersion != 0 {
+		t.Fatalf("structure version = %d, want 0", tr.StructureVersion)
+	}
+
+	// Changing the rows after the current level is allowed.
+	suffix := []Level{
+		{Type: LevelTypeLevel, Bets: Bets{SB: 100, BB: 200}, DurationSec: 300},
+		{Type: LevelTypeBreak, DurationSec: 600},
+		{Type: LevelTypeLevel, Bets: Bets{SB: 300, BB: 600}, DurationSec: 900},
+	}
+	if err := tr.ReplaceStructure(suffix); err != nil {
+		t.Fatalf("ReplaceStructure: %v", err)
+	}
+	if tr.StructureVersion != 1 {
+		t.Fatalf("structure version = %d, want 1", tr.StructureVersion)
+	}
+	if tr.Structure[2].Bets.BB != 600 {
+		t.Fatalf("structure[2] = %+v, want the new row", tr.Structure[2])
+	}
+	// The clock of the current level is not touched.
+	if tr.CurrentLevel != 1 {
+		t.Fatalf("current level = %d, want 1", tr.CurrentLevel)
+	}
+	if tr.LevelEndsAt == nil || !tr.LevelEndsAt.Equal(endsAt) {
+		t.Fatalf("level ends at = %v, want %v", tr.LevelEndsAt, endsAt)
+	}
+}
+
+// TestReplaceStructureWhileFinishedIsRefused checks that a finished
+// tournament keeps its structure.
+func TestReplaceStructureWhileFinishedIsRefused(t *testing.T) {
+	tr, clock := newTestTournament(t)
+	mustStart(t, tr, clock)
+
+	clock.Advance(1200 * time.Second)
+	tr.Tick(clock.Now())
+	if tr.State() != Finished {
+		t.Fatalf("state = %v, want finished", tr.State())
+	}
+
+	err := tr.ReplaceStructure([]Level{
+		{Type: LevelTypeLevel, Bets: Bets{SB: 100, BB: 200}, DurationSec: 300},
+	})
+	if err != ErrFinished {
+		t.Fatalf("ReplaceStructure = %v, want %v", err, ErrFinished)
+	}
+	if tr.StructureVersion != 0 {
+		t.Fatalf("structure version = %d, want 0", tr.StructureVersion)
+	}
+	if len(tr.Structure) != 3 {
+		t.Fatalf("structure length = %d, want 3", len(tr.Structure))
+	}
+}

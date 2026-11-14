@@ -53,3 +53,31 @@ func TestProtectedAPIRequiresSession(t *testing.T) {
 		t.Fatalf("display snapshot status = %d, want 200: %s", w.Code, w.Body)
 	}
 }
+
+// TestStructureRoutesRequireSession checks that the routes of the structure
+// editor are protected as well.
+func TestStructureRoutesRequireSession(t *testing.T) {
+	e := testServer(t)
+	id, _ := e.createTestTournament(t)
+
+	calls := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/structures/analyze"},
+		{http.MethodGet, "/api/tournaments/" + id + "/structure"},
+		{http.MethodGet, "/api/templates"},
+		{http.MethodPost, "/api/templates"},
+		{http.MethodGet, "/api/templates/1"},
+		{http.MethodPut, "/api/templates/1"},
+		{http.MethodDelete, "/api/templates/1"},
+	}
+	for _, c := range calls {
+		req := httptest.NewRequest(c.method, c.path, strings.NewReader("{}"))
+		w := httptest.NewRecorder()
+		e.srv.Handler().ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s without a session = %d, want 401", c.method, c.path, w.Code)
+		}
+	}
+}

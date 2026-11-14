@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PonyTimer — Structure editor</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+<main class="wide editor">
+  <header class="topbar">
+    <h1>Structure editor</h1>
+    <nav>
+      <a href="/admin">Tournaments</a>
+      <a href="/admin/accounts">Accounts</a>
+      <a href="/display">Display</a>
+      <form method="post" action="/logout" class="inline"><button type="submit" class="link">Sign out</button></form>
+    </nav>
+  </header>
+
+  <p id="editor-error" class="error" hidden></p>
+
+  <div id="draft-banner" class="banner" hidden>
+    <span id="draft-note"></span>
+    <button type="button" id="draft-discard" class="secondary">Discard the draft and reload</button>
+  </div>
+
+  <section class="panel">
+    <div class="editor-head">
+      <div class="editor-target">
+        <span id="target-label" class="editor-target-label">New structure</span>
+        <span id="target-state" class="state" hidden></span>
+        <span id="target-version" class="sub" hidden></span>
+      </div>
+      <div class="editor-name" id="name-wrap" hidden>
+        <label for="template-name">Name</label>
+        <input id="template-name" type="text" placeholder="Template name">
+      </div>
+    </div>
+
+    <div class="editor-toolbar">
+      <div class="editor-params">
+        <label for="entries">Entries</label>
+        <input id="entries" type="number" min="1" step="1" value="100">
+        <label for="starting_stack">Starting stack</label>
+        <input id="starting_stack" type="number" min="0" step="1" value="1000">
+      </div>
+      <div class="editor-actions">
+        <button type="button" id="add-level" class="secondary">+ Level</button>
+        <button type="button" id="add-break" class="secondary">+ Break</button>
+        <button type="button" id="rotate-games" class="secondary">Rotate games</button>
+        <button type="button" id="import" class="secondary">Import</button>
+        <button type="button" id="export-csv" class="secondary">Export CSV</button>
+        <button type="button" id="copy-csv" class="secondary">Copy CSV</button>
+        <button type="button" id="templates" class="secondary">Templates</button>
+        <button type="button" id="nest" class="secondary">Nest</button>
+        <button type="button" id="breaks" class="secondary">Breaks</button>
+        <button type="button" id="undo" class="secondary">Undo</button>
+        <button type="button" id="redo" class="secondary">Redo</button>
+        <button type="button" id="save">Save</button>
+      </div>
+    </div>
+    <p id="editor-status" class="sub"></p>
+  </section>
+
+  <section class="panel simulation-panel">
+    <h2>Simulation and stack pressure</h2>
+    <label for="start-time">Start time</label>
+    <input id="start-time" type="datetime-local">
+    <div class="simulation-stats">
+      <div><span>Total duration</span><strong id="sim-duration">—</strong></div>
+      <div><span>Expected finish</span><strong id="sim-finish">—</strong></div>
+      <div><span>Late registration closes</span><strong id="sim-late">—</strong></div>
+      <div><span>R13 expected level</span><strong id="sim-end-level">—</strong></div>
+      <div><span>Total chips</span><strong id="sim-chips">—</strong></div>
+    </div>
+    <p class="sim-note">Total chips = expected entries × starting stack; rebuys and add-ons are excluded.</p>
+    <div class="pressure-chart-wrap"><svg id="pressure-chart" class="pressure-chart" role="img" aria-label="Average stack in big blinds by level"></svg></div>
+  </section>
+
+  <section class="panel bulk-panel" id="bulk-panel" hidden>
+    <span id="bulk-count" class="sub"></span>
+    <label for="bulk-minutes">Minutes</label>
+    <input id="bulk-minutes" type="number" min="0" step="1" value="20">
+    <button type="button" id="bulk-apply" class="secondary">Set the minutes</button>
+    <button type="button" id="bulk-delete" class="danger">Delete the selected rows</button>
+  </section>
+
+  <section class="panel">
+    <h2>Levels</h2>
+    <div class="grid-wrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="c-check"></th>
+            <th class="c-num">#</th>
+            <th class="c-type">Type</th>
+            <th class="c-game">Game</th>
+            <th class="c-format">Format</th>
+            <th class="c-bets">Forced bets</th>
+            <th class="c-time">Minutes</th>
+            <th class="c-cum">Elapsed</th>
+            <th class="c-mark">Markers</th>
+            <th class="c-ops">Row</th>
+          </tr>
+        </thead>
+        <tbody id="level-rows"></tbody>
+      </table>
+    </div>
+    <datalist id="game-options"></datalist>
+    <div id="suggestion-bar" class="suggestion-bar" hidden>
+      <span class="sub">Next level candidates</span>
+      <div id="suggestion-chips" class="suggestion-chips"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Validation</h2>
+    <p id="issues-empty" class="sub">No issues yet.</p>
+    <ul id="issue-list" class="issues"></ul>
+  </section>
+</main>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-head">
+      <h2 id="modal-title"></h2>
+      <button type="button" id="modal-close" class="secondary">Close</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<script src="/static/structureio.js"></script>
+<script src="/static/editor.js"></script>
+</body>
+</html>

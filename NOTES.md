@@ -767,3 +767,388 @@ v0.1 レビューの Major-2 対応。レベル行に format / bets / game を�
     スナップショット、next の game 名、next が break、現在ブラインドの
     HTML 結合、桁区切り。
   - `gofmt -l .` 出力なし、`go vet ./...` 問題なし、`go test ./...` 全パッケージ PASS。
+
+## Issue #6 — ストラクチャー・エディタ
+
+### 設計メモ (実装前、コーディネーター作成)
+
+#### 構造 (Structure) の扱い: 独立エンティティ化しない
+
+- 現行どおり Tournament がレベル列を保持し、エディタは「トーナメントの
+  レベル列」を編集対象とする。仕様 §11 の Structure は「行の配列 + 版」と
+  いう形の定義であり、`Tournament.Structure` + `StructureVersion` が
+  実質的にそれを満たす。独立 ID 付きエンティティにすると永続化
+  (state_json)・作成 API・スナップショットの全面移行が要る割に、
+  v1 の利用者価値が無い。
+- テンプレートだけは独立エンティティにする。別トーナメントへ適用する
+  ものなので Tournament の外に存在する必要がある。新規テーブル
+  `templates (id, name, levels_json, created_at, updated_at)` に
+  名前 + レベル列で持つ (§11 の Template = Structure と同形)。
+- ネストは「テンプレート (または他トーナメントの構造) の区間を
+  編集バッファへ差し込む」操作としてエディタ側で合成する。
+  サーバー側に合成 API は作らない。
+
+#### 検証・シミュレーションの置き場所: Go の core に一本化
+
+- `internal/core` に新設する:
+  - `ladder.go`: マスター梯子と「綺麗な組」の判定 (下記)
+  - `validate.go`: `ValidateStructure(levels, opts) []Issue`
+    (Issue は severity: error / warn / info、行番号、rule、message)
+  - `simulate.go`: `Simulate(levels, entries, startingStack, start)`
+    → 総所要時間、終了予定時刻、レイト締切、行ごとの開始オフセットと
+    アベレージ BB、R13 終了想定レベルと到達時刻、次レベル候補
+- HTTP は `POST /api/structures/analyze` (要認証) が
+  {levels, entries, starting_stack, start_time_ms, chip_unit,
+  suggest_after_index} を受けて {issues, simulation, suggestions} を返す。
+  エディタは編集のたびにデバウンスして呼び、検証とシミュレーションの
+  正を Go 側に一本化する (#7 の生成と共有するため)。JS 側に検証
+  ルールの複製は作らない。
+- 累計時刻の列表示だけは行 duration の単純合計なので JS で計算してよい
+  が、シミュレーションパネルとグラフは analyze の結果を使う。
+
+#### 「綺麗な組」の形式化 (付録 B7 対応)
+
+- 梯子値: 仮数部 {1, 1.2, 1.5, 1.6, 2, 2.5, 3, 4, 5, 6, 8} × 10^n。
+  1.6 は旧主流形 (B2) のため梯子に含めるが legacy 扱いとする。
+- 正規ペア表 (BB 仮数部 → 許容 SB 仮数部) を付録 A の実績 + B2 から作る:
+  1→{0.5}, 1.2→{0.6}, 1.5→{1.0}, 1.6→{0.8}, 2→{1.0}, 2.5→{1.0, 1.25},
+  3→{1.5, 2}, 4→{2}, 5→{2.5, 3}, 6→{3}, 8→{4}
+- 判定: BB が梯子値でない → warn `not_clean_value`。組が正規ペア表に
+  無い → warn `not_clean_pair`。警告には最も近い正規の組を提案として
+  含める (例: 700/1400 → 1000/1500 への変更提案、§8.4)。
+- これで B1 / B2 / B3 は無警告、B4 (700/1400) / B5 (800/1500) /
+  B6 (700/1400 を含む) に警告が出る。B6 の「刻みすぎ」自体は
+  700/1400 の警告でカバーされるものとし、上昇率が小さい区間への
+  追加警告は本 Issue では必須としない。
+
+#### 検証ルール一覧 (§8.4 + §14)
+
+- error (保存不可): duration ≤ 0、レベル列が空、未知の format
+- warn: BB の単調増加違反 (横ばい・減少)、SB > BB、SB == BB
+  (§8.4: 意図的な SB=BB は警告のみ)、BB ジャンプ 2 倍超、
+  最小チップ単位で割り切れない値 (chip_unit、既定 25)、
+  綺麗でない値・組 (上記)、Ante > BB
+- warn (§14): スタッド行の Ante < Bring-in < Complete 違反、
+  Complete の単調増加違反、Limit 行で big_bet 明示値 ≠ BB×2
+- info (§14): 形式が切り替わる境界での実効リミット跳ね上がり率
+  (ブラインド系は BB、スタッド系は Complete を実効値とする)
+
+#### シミュレーション (§8.4)
+
+- 総チップ T = 想定エントリー数 × 開始スタック (リバイ等を含めない
+  想定値であることを UI に明記する)。
+- 行ごと: 開始オフセット (累計分)、アベレージスタック (= T / エントリー数)
+  をその行の BB で割った BB 換算値。スタッド行は Complete を分母にする。
+  Break 行は換算なし。
+- 総所要時間 = 全行の duration 合計。終了予定時刻 = 開始時刻 + 総所要時間。
+- レイト締切: marker `late_reg_end` の行が「そのレベルまで登録可」。
+  締切レベル (その行の番号) と締切時刻 (その行の終了時刻) を返す。
+- R13 終了想定: BB_end = T / 20。ブラインド行のうち BB が BB_end 以上に
+  なる最初の行を終了想定レベルとし、その開始時刻を到達時刻とする。
+  (グラフ上のマーカーは「到達可能性」の表示なので、最も近い値への
+  スナップでなく最初に到達する行を採る。)
+
+#### マーカー
+
+- `core.Level` に `Markers []string` (json `markers,omitempty`) を追加する。
+  永続化は Level の JSON にそのまま乗る。既知の値: `late_reg_end`,
+  `rebuy_end`, `color_up`, `addon_break`。未知の値は保持し、検証では
+  対象にしない。LevelView (表示用) には今回は出さない。
+
+#### 構造の取得・保存 API
+
+- `GET /api/tournaments/{id}/structure` (要認証): エディタ初期ロード用に
+  {name, state, current_level, structure_version, game_mix,
+  starting_stack, levels} を返す。snapshot は表示用で構造全体を
+  含まないため新設する。
+- 保存は commands 経路に一本化し、新コマンド `update_structure`
+  {levels} を追加する。core の `Tournament.ReplaceStructure` が:
+  - waiting: 全行差し替え可
+  - running / paused / break: 先頭 CurrentLevel+1 行 (現レベル以前) が
+    現行と完全一致すること (ロック)。一致しなければエラー。
+    LevelEndsAt / RemainingSec には触らない (§8.5: 現レベルの時間は
+    変更不可、時間変更は §6.1 の時間±調整)
+  - finished: エラー
+  - 成功時: StructureVersion を +1 し、既存の emit 経路で
+    `structure_updated` イベントを配信する
+- テンプレート API (要認証): GET /api/templates、
+  POST /api/templates、GET /api/templates/{id}、
+  PUT /api/templates/{id}、DELETE /api/templates/{id}。
+
+#### エディタ UI
+
+- ルート `GET /admin/editor` (要認証)。クエリ `?tournament=<id>` /
+  `?template=<id>`。無指定は空の構造から始める。
+  admin.html のトーナメント一覧に「構造を編集」リンクを追加する。
+  既存のテキストエリア作成経路は変更しない。
+- editor.js の行モデルは JS 配列。セルは input ベースで編集し、
+  DOM 順でタブ移動する。行操作: 挿入 / 削除 / 複製 / ドラッグ
+  並べ替え (HTML5 DnD) / 複数行選択の一括変更 (時間一括設定、削除)。
+  Undo/Redo はメモリ上の履歴スタック。下書き自動保存は localStorage
+  (キー = 対象種別 + id)、ロード時に下書きがあればバナーで知らせて
+  復元し、保存成功で消去する。
+- 列は format で可変: blind-nl は SB/BB/Ante、blind-limit は
+  SB/BB/BIG BET/Ante、stud-limit は Ante/Bring-in/Complete。
+  スタッド無効 (game_mix.stud_enabled = false) のトーナメントでは
+  スタッドの format を候補に出さない。ゲーム列は game_mix の
+  ローテーション (games の並び × levels_per_game) を初期割当し、
+  行ごとに手動変更も可能とする。
+- 取込/書出: ペースト取込モーダル (TSV / CSV / 空白区切りを受理。
+  列は SB,BB[,Ante[,分]]、break 行は `break,分`)、CSV 取込 (ファイル)、
+  CSV 書出 (ダウンロード + クリップボード)。付録 A の再現経路は
+  「SB/BB の 2 列 + 取込ダイアログで一律 duration (120 分) と
+  Ante = BB 同額を指定」で 47 行を再現できることとし、ハーネスで実証する。
+- Break 一括挿入: 「N レベルごとに M 分」をダイアログで挿入、
+  全 Break 除去ボタンも置く。カラーアップ候補位置での Break 提案は
+  本 Issue では行わない (マーカー color_up は手動で付けられる)。
+- 開催中ロック: structure 取得時の state が waiting 以外なら
+  current_level 以下の行をグレー表示 + 入力 disabled にし、prefix を
+  壊す行操作 (ロック行の削除・並べ替え・一括変更) も UI で禁止する。
+  サーバー側でも ReplaceStructure が検証する二重化とする。
+  受け入れ条件「開催中は現レベル以前の行がロックされる」は
+  core テスト + httpapi テスト + UI のロック表示で担保する。
+
+#### ChangeLog / 差分表示は follow-up に切る
+
+- §8.5 の中核 (ロック、次レベル反映、version +1、structure_updated
+  配信) は本 Issue で満たす。events テーブルには structure_updated が
+  structure_version とスナップショット payload 付きで残る。
+- §11 ChangeLog エンティティ (誰が・いつ・何を) と差分表示 UI は
+  本 Issue には含めず、follow-up Issue 化を PR 本文で提案する。
+
+#### ステップ分割
+
+- (a) core: ladder / validate / simulate + Markers + テスト
+- (b) API: analyze、structure 取得、update_structure コマンド、
+  テンプレート CRUD + store
+- (c) エディタ UI 基本: グリッド編集、行操作、Undo/Redo、自動保存、
+  analyze 連携 (検証表示)
+- (d) 取込/書出、テンプレート、ネスト、候補提示、Break 一括挿入
+- (e) シミュレーション表示 + 圧迫度グラフ
+- (f) 開催中ロック (UI 表示と操作禁止; サーバー検証は (b))
+
+### 実装メモ (Step A: core の検証・シミュレーション)
+
+2026-11-13 実装。対象は `internal/core` のみ (httpapi / store / webui は
+触っていない)。
+
+#### 変更ファイル
+
+- `internal/core/level.go`: `Level.Markers []string` (json `markers,omitempty`)
+  を追加。定数 `MarkerLateRegEnd` / `MarkerRebuyEnd` / `MarkerColorUp` /
+  `MarkerAddonBreak` と補助メソッド `HasMarker`。`Level` は独自
+  `UnmarshalJSON` を持つため、raw 構造体にも markers を追加して永続化で
+  消えないようにした。
+- `internal/core/ladder.go` (新規): マスター梯子と「綺麗な組」の判定。
+- `internal/core/validate.go` (新規): `ValidateStructure` と
+  `ValidationIssue` / `ValidateOptions` / `IssueSeverity`。
+- `internal/core/simulate.go` (新規): `Simulate` / `Simulation` / `SimRow` と
+  `NextBetSuggestions` / `BetSuggestion`。
+- `internal/core/ladder_test.go`, `validate_test.go`, `simulate_test.go`
+  (新規), `level_test.go` (マーカーの往復テストを追加)。
+- `internal/core/level_test.go`, `internal/store/store_test.go`: `Level` に
+  スライス	field が入って `==` で比較できなくなったため、構造体の比較を
+  `reflect.DeepEqual` に変更 (閾値や判定は変えない)。既存の挙動は不变。
+
+#### 決めたこと
+
+- 梯子の仮数部: 末尾の 0 を剥がした値で判定する (1500→15、1000→1、
+  1200→12、250000→25)。集合は {1, 2, 3, 4, 5, 6, 8, 12, 15, 16, 25}。
+  16 (=1.6) は B2 の旧主流形で legacy 扱い。浮動小数点は一切使わず、
+  割り算は整数演算と gcd による既約分数で行う。
+- 正規ペア表は BB 仮数部 → SB/BB の既約分数: 1→{1/2}、12→{1/2}、
+  15→{2/3}、16→{1/2}、2→{1/2}、25→{2/5, 1/2}、3→{1/2, 2/3}、
+  4→{1/2}、5→{1/2, 3/5}、6→{1/2}、8→{1/2}。設計メモの「BB 仮数部 →
+  許される SB 仮数部」表 (1.2→{0.6} など) を同一指数の比に翻訳した
+  もので、内容は同じ。
+- 提案の選び方: BB が梯子値でないときは「BB 以上の最小の梯子値」に
+  移し、その BB の正規比のうち元の sb/bb に最も近い比で SB を作る。
+  距離の比較は分数として正確に行い、同距離なら小さい比を優先。
+  例: 700/1400 → 1000/1500、800/1500 → 1000/1500。
+- `not_clean_value` (BB が梯子値でない) と `not_clean_pair` (BB は梯子値
+  だが組が表に無い) は排他で出す (同じ行に二重に出さない)。
+- 単調増加・2 倍超ジャンプの比較は format ファミリー (ブラインド系 /
+  スタッド系) ごとに行い、Break 行は読み飛ばす。横ばいも違反として
+  警告する (設計メモ「横ばい・減少」)。
+- チップ単位の警告は、format が持つ強制ベットのうち設定されているもの
+  (0 は未設定) について 1 フィールドにつき 1 件出す。SB 単体が
+  25 で割り切れない場合はその旨をメッセージに記す。
+- `format_boundary` は info。境界の比較対象は直前の **レベル** 行
+  (Break は読み飛ばす)。実効リミットはブラインド系が BB、スタッド系が
+  Complete。
+- シミュレーションの時刻は分単位。duration は秒で持つので、累積秒を
+  `toMinutes` で最も近い分へ四捨五入する (duration が整分なら厳密に一致)。
+- R13: BB_end = T / 20 (整数除算)。ブラインド行のうち BB >= BB_end の最初の行を終了想定レベルとする (BB が 0 の行は除く)。
+- `NextBetSuggestions`: 基準行の主値より大きい梯子値 3 個と、×1.25 / ×1.5 / ×2 を「以上の最小の梯子値」へスナップした値 (重複除去・昇順)。ブラインド行なら各候補に正規比から作った SB を付ける。Break 行は直前のレベル行を基準にする。
+
+#### テスト結果
+
+- `gofmt -l .` → 出力なし、`go vet ./...` → 問題なし、
+  `go test ./...` → 全パッケージ PASS (core / auth / httpapi / store / webui)。
+- 固定した内容:
+  - 付録 A の 47 行 (Ante=BB、120 分): `ValidateStructure` の issue は 0 件。
+    `Simulate(1 entry, 60000)` で L5 (BB 600) の AvgBB がちょうど 100、
+    L6 (BB 800) で 100 を下回る (付録 A の R2)。
+  - 付録 B: B1/B2/B3 は not_clean 系 warn なし、B4 (700/1400) と
+    B6 (700/1400) は `not_clean_value`、B5 (800/1500) は
+    `not_clean_pair`。いずれも提案は 1000 / 1500。
+  - ルール単体: SB==BB / SB>BB / BB 減少 / 2 倍超ジャンプ / Ante>BB /
+    duration 0 / BB 未設定 / 形式未知 / チップ単位 (SB 130, chip 25) /
+    スタッドの順序違反 / Limit の big_bet ≠ BB×2 / 空構造 / 境界 info。
+  - 梯子単体: `IsLadderValue` / `LadderValuesAround` / `CleanPair`。
+  - シミュレーション: 総所要時間 (付録 A で 5640 分)、レイト締切
+    (マーカー行 7 → 締切 840 分)、R13 (100 entry × 10000 → T=1,000,000、
+    BB_end=50,000 → 付録 A の L24、開始 2760 分)、Break 行は AvgBB なし。
+  - マーカーの JSON 往復 (行単体と PersistedState の両方で保持)。
+
+### 実装メモ (Step B: API)
+
+2026-11-13 実装。対象は `internal/core` (差分のみ)、`internal/httpapi`、
+`internal/store`。エディタ UI (Step C 以降) は触っていない。
+
+#### 変更ファイル
+
+- `internal/core/level.go`: `Level.Equal(o Level) bool` を追加。`Index` は
+  比較しない (行の位置は構造の変更で振り直される)、`Format` は
+  `EffectiveFormat()` で比較する (空 format と blind-nl は同じ)、Markers は
+  集合として比較する (nil と空スライスは同じ、順序は問わない)。
+- `internal/core/tournament.go`: `ErrFinished` / `ErrStructureLocked` と
+  `Tournament.ReplaceStructure(levels []Level) error` を追加。
+- `internal/httpapi/analyze.go` (新規): `POST /api/structures/analyze`。
+- `internal/httpapi/templates.go` (新規): テンプレートの CRUD。
+- `internal/httpapi/handlers.go`: `GET /api/tournaments/{id}/structure`
+  (`structureResponse` 型と `handleGetStructure`)。
+- `internal/httpapi/commands.go`: `update_structure` コマンド
+  (`commandRequest.Levels`、`validateStructureForSave`)。
+- `internal/httpapi/server.go`: 新しいルートの登録 (すべて要認証)。
+- `internal/store/store.go`: スキーマに `templates` テーブルを追加 (冪等)。
+- `internal/store/templates.go` (新規): `Template` 型と CRUD。
+- テスト: `internal/core/tournament_test.go` (ReplaceStructure 3 件)、
+  `internal/httpapi/analyze_test.go` / `structure_test.go` /
+  `templates_test.go` / `auth_test.go` (追加)、
+  `internal/store/templates_test.go` (新規)。
+
+#### 決めたこと
+
+- `ReplaceStructure` のロック範囲は `CurrentLevel+1` 行 (現レベルを含む)。
+  ロックされた行は `Level.Equal` で現行構造と比べる。`Level.Equal` は
+  `Index` を比較しない: 索引は構造の変更で振り直されるためであり、
+  クライアントが索引を含めない行を送ってもロック判定が壊れない。
+  書換えは成功時に必ず `StructureVersion` を +1 する。
+  `LevelEndsAt` / `RemainingSec` / `CurrentLevel` には触らない (spec §8.5)。
+- `analyze` の issue は httpapi 側の変換型 (`analyzeIssue`) 做出的。severity
+  は `core.IssueSeverity.String()` の "error" / "warn" / "info"。
+  `suggest_after_index` は省略時は最終行 (core の `NextBetSuggestions` の
+  規約に合わせて -1)。JSON の省略と 0 を区別するため `*int` にした。
+- 絶対時刻 (*_ms) は `start_time_ms > 0` のときだけ入れる。終了予定 =
+  start + TotalMin、レイト締切 = start + LateRegCloseMin (締切レベルが
+  あるとき)、R13 到達 = start + EndLevelStartMin (到達する行があるとき)。
+  対象が無ければ 0 のまま。
+- 検証 error がある構造も `analyze` は 200 で issues を返す。400 は JSON が
+  読めないときだけ。
+- `update_structure` は適用前に `core.ValidateStructure` を走らせ、
+  `SeverityError` の issue があればその message を 409 のエラーにする。
+  warn / info は保存を妨げない (spec §8.4)。保存後のイベントは
+  `structure_updated` で、既存の保存・emit の経路に乗る。
+- テンプレートの行 (`Index`) は保存したものをそのまま保持する (採番は
+  読み手の責務)。空の levels は API で 400 に弾くので、store には
+  「空のテンプレート」が入らない。
+- テンプレートの更新は `UPDATE` の後に読み直して返すので、`created_at` は
+  変わらない。存在しない id は `ErrNotFound` (404)。
+- 新しいルートはすべて `/api/` の下なので、セッションなしの呼び出しは
+  既存の `RequireAuth` で 401 JSON になる。
+
+#### テスト結果
+
+- `gofmt -l .` → 出力なし、`go vet ./...` → 問題なし、
+  `go test ./...` → 全パッケージ PASS (core / auth / httpapi / store / webui)。
+- 固定した内容:
+  - core: waiting で全差し替え (version 1)、running で prefix 変更が
+    `ErrStructureLocked`・suffix 変更が成功して version +1、finished で
+    `ErrFinished`。
+  - analyze: 付録 B4 相当の 3 行で `not_clean_value` (warn) が row 1 に出る、
+    TotalMin = 360、suggestions が空でない。壊れた構造 (duration 0) でも
+    200 で `bad_duration` (error) が返る。絶対時刻は start があるときだけ。
+  - structure 取得: 作成したトーナメントの levels が往復する。
+  - update_structure: waiting で差し替え成功 (`structure_updated`、version
+    +1)、開始後に prefix を変えると 409・suffix だけ変えると成功、
+    duration 0 の構造は 409、warn だけの構造 (700/1400) は保存できる。
+  - templates: POST → GET 一覧 → GET 個別 → PUT → DELETE の往復、name 空と
+    levels 空は 400、存在しない id は 404。
+  - store: テンプレートの往復 (levels・markers 込み)、更新で created_at が
+    変わらないこと、存在しない id で ErrNotFound。
+
+### 実装メモ (Step C: エディタ UI 基本)
+
+2026-11-13 実装。前任セッションの未コミット部分成果 (`GET /admin/editor` の
+ルート、`RenderEditor`、`editor.html`) を引き継ぎ、HTML の ID 契約を保って
+クライアント UI を実装した。
+
+#### 変更ファイル
+
+- `internal/webui/static/editor.js`: tournament / template / 新規対象の読込、
+  行グリッド・形式別ベット・マーカー・行追加/複製/削除/HTML5 DnD、ゲーム
+  ローテーション、一括時間設定/削除、Undo/Redo、localStorage 下書き、
+  analyze 検証表示、保存を実装。
+- `internal/webui/static/admin.js`: 各トーナメントに構造編集リンクを追加。
+- `internal/webui/static/style.css`: エディタのツールバー、グリッド、ベット、
+  マーカー、検証 severity、ドラッグ、下書きバナー用スタイルを追加。
+- `internal/webui/webui_test.go`: エディタテンプレート描画と editor.js 静的配信
+  の確認を追加。
+- `NOTES.md`: 本メモ。
+
+#### 決定事項・範囲
+
+- 編集モデルは API の level JSON 配列とし、表示上の時間を分、保存値を秒で
+  換算する。セル入力はモデルに即時反映し、入力中のフォーカスを維持する。
+- 新規構造は指定どおり保存を無効化し、トーナメント作成画面への保存導線は
+  後続ステップに残した。
+- 指定範囲外のシミュレーション表示/グラフ、候補 UI、取込/書出、テンプレート
+  選択、ネスト、Break 一括挿入、開催中ロックは追加していない。
+- 検証結果は Go analyze API を利用し、error issue が存在する場合は保存を
+  ブロックする。テンプレートと tournament の下書きキーは kind と ID で分離。
+
+#### 検証
+
+- `node --check internal/webui/static/editor.js`
+- `node --check internal/webui/static/admin.js`
+- `gofmt -l .`
+- `go vet ./...`
+- `GOCACHE=/tmp/pt-go-cache go test ./...`
+
+#### 書き手の経緯 (コーディネーター注記)
+
+- 本ステップは当初 FCC (MiniMax M3.1 Flash) に投入したが 3 回失敗した:
+  1 回目はランタイム再起動でセッション消滅 (成果なし)、2 回目は約 50 分で
+  SIGTERM され部分成果 (ルート / RenderEditor / editor.html) のみ、
+  3 回目は約 97 分で NIM 側のタイムアウト終了 (成果なし)。
+- AGENTS.md のフォールバック規定により Codex に切り替えた。Codex は
+  stdin を閉じる (`< /dev/null`) ことで正常起動し (従来の
+  codex-code-mode-host 欠落は再現しなかった)、約 5 分で本ステップを完走した。
+- コーディネーターが editor.js に小修正を加えた: ドラッグはハンドルからの
+  開始に限定 (入力欄からの誤ドラッグ防止)、保存応答の structure_version を
+  snapshot から読む、新規構造でも下書き復元を行う。
+
+### 実装メモ (Step D: 取込/書出、テンプレート、ネスト、候補提示、Break)
+
+- 前任 FCC セッションで作成された `structureio.js` と editor.js / editor.html の部分成果を精査して引き継ぎ、未接続だった UI 操作と静的配信確認、スタイルを補完した。
+- 変更ファイル: `internal/webui/static/structureio.js`（テキスト/CSV の純粋変換関数）、`internal/webui/static/editor.js`（取込・書出、テンプレート CRUD 操作、ネスト、候補、Break 一括挿入）、`internal/webui/templates/editor.html`（各操作ボタンと共通モーダル）、`internal/webui/static/style.css`（モーダル・候補チップ等）、`internal/webui/webui_test.go`（structureio.js 配信確認）、本メモ。
+- テキスト取込は 2〜4 列の SB/BB/Ante/分と break 行を受け付ける。既定時間は 20 分、2 列形式の Ante は指定時に BB と同額にする。CSV は指定ヘッダーとマーカーのセミコロン区切りで往復する。新規モードの保存操作はテンプレート作成として扱い、保存後にそのテンプレートを編集対象にする。
+- Break 挿入は既存 Break をカウントせずレベル行の個数で間隔を判定する。ネストはテンプレートまたは別トーナメントの構造を取得し、指定区間を挿入する。
+- 検証: Node 構文確認と指定ハーネス、gofmt、go vet、Go テストを実施（結果は Step D 完了報告に記載）。
+- 書き手の経緯 (コーディネーター注記): FCC (MiniMax) は約 24 分で SIGTERM され、部分成果（structureio.js と editor.js / editor.html の途中まで）を残して終了した。エディタ JS 作業での FCC の失敗が Step C から通算 4 回目となったため、AGENTS.md のフォールバック規定により残りを Codex が完了させた。コーディネーターも独立ハーネスで付録 A 再現（47 行一致）と CSV 往復を確認済み。
+
+### 実装メモ (Step E: シミュレーション表示 + 圧迫度グラフ)
+
+- 変更ファイル: `internal/webui/templates/editor.html`（開始時刻、集計値、SVG パネル）、`internal/webui/static/editor.js`（analyze への時刻送信と応答描画）、`internal/webui/static/style.css`（集計カードと SVG グラフ）、本メモ。
+- 開始時刻が空なら `start_time_ms: 0` とし、結果時刻は開始からの累計分で表示する。入力があればその時刻を送信し、予定時刻を HH:MM で表示する。グラフは analyze 応答内の `simulation.rows` のみから作り、平均 BB があるレベル行を折れ線・点で表示し、LR と R13 の位置をマークする。点の title にはレベル、開始時刻、BB を含める。
+- 総チップ注記は想定エントリー数 × 開始スタックであり、リバイ等を含まない旨を表示する。
+- 検証: `node --check` は `editor.js` / `structureio.js` / `admin.js` すべて成功。`gofmt -l .` は出力なし、`go vet ./...` は問題なし、`GOCACHE=/tmp/pt-go-cache go test ./...` は全パッケージ PASS。
+
+### 実装メモ (Step F: 開催中ロック)
+
+- 変更ファイル: `internal/webui/static/editor.js`（ロック範囲判定、入力・操作制御、suffix 一括操作）、`internal/webui/static/style.css`（灰色行と境界表示）、`internal/webui/templates/editor.html`（終了時刻とシミュレーションパネル）、本メモ。
+- 構造の取得応答を `load()` が `base` に保持し、その `state` と `current_level`（structure endpoint の 0 始まり整数）から prefix 長を算出する。トーナメントの waiting は 0 行、running / paused / break は現在行まで、finished は全行をロックして保存を無効にする。ローカル下書き復元後もサーバー取得時の state/current_level を基準に UI 制御するため、通常の行操作、DnD、一括操作、Replace import、Nest 挿入、Break 操作、ローテーションは prefix を変更しない位置・対象に制限する。
+- サーバーからの再取得やブラウザー操作による受け入れ確認は未実施。UI の制御はクライアント側での通常操作を対象とし、復元下書きが prefix を変えている場合の保存拒否は既存のサーバー 409 経路に委ねる。
+- 書き手の経緯 (コーディネーター注記): Step E / F はエディタ JS の作業であり、FCC (MiniMax) は Step C / D で通算 4 回失敗していたため、AGENTS.md のフォールバック規定に基づき最初から Codex に委譲した (約 5 分で完走)。
+- 検証: `node --check` は `editor.js` / `structureio.js` / `admin.js` すべて成功。`gofmt -l .` は出力なし、`go vet ./...` は問題なし、`GOCACHE=/tmp/pt-go-cache go test ./...` は全パッケージ PASS。実ブラウザー確認はコーディネーター側で未実施。

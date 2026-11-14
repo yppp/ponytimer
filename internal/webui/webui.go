@@ -78,6 +78,15 @@ func RenderDisplay(w http.ResponseWriter, _ *http.Request) {
 	render(w, "display.html", PageData{})
 }
 
+// RenderEditor writes the structure editor page.
+//
+// The page is a shell: the editor reads its target (a tournament, a
+// template or nothing at all) from the query string and loads it from the
+// API on its own.
+func RenderEditor(w http.ResponseWriter, _ *http.Request) {
+	render(w, "editor.html", PageData{})
+}
+
 // StaticHandler serves the embedded static files (style sheets and
 // scripts).
 func StaticHandler() http.Handler {

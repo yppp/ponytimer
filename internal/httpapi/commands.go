@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -19,6 +20,9 @@ const (
 	CommandPrevLvl = "prev_level"
 	CommandReset   = "reset"
 	CommandCounts  = "counts"
+	// CommandUpdateStructure replaces the structure of the tournament
+	// (spec §8.5).
+	CommandUpdateStructure = "update_structure"
 )
 
 // countOp is one count change: either a delta or an absolute value.
@@ -47,6 +51,8 @@ type commandRequest struct {
 	DeltaSec int `json:"delta_sec"`
 	// Counts holds the count changes of the counts command.
 	Counts *countsPayload `json:"counts"`
+	// Levels is the new structure of the update_structure command.
+	Levels []core.Level `json:"levels"`
 }
 
 // commandResponse is the answer of a command.
@@ -153,9 +159,31 @@ func (s *Server) applyCommandLocked(rt *runtime, req commandRequest, now time.Ti
 			return "", err
 		}
 		return "counts_updated", nil
+	case CommandUpdateStructure:
+		if err := validateStructureForSave(req.Levels); err != nil {
+			return "", err
+		}
+		if err := t.ReplaceStructure(req.Levels); err != nil {
+			return "", err
+		}
+		return "structure_updated", nil
 	default:
 		return "", fmt.Errorf("unknown command type %q", req.Type)
 	}
+}
+
+// validateStructureForSave checks that a structure may be saved.
+//
+// Only the errors of the validation block the save: a warning or a remark
+// about the structure is the user's decision (spec §8.4).
+func validateStructureForSave(levels []core.Level) error {
+	issues := core.ValidateStructure(levels, core.ValidateOptions{})
+	for _, is := range issues {
+		if is.Severity == core.SeverityError {
+			return errors.New(is.Message)
+		}
+	}
+	return nil
 }
 
 // applyCounts applies the count changes to the tournament.
